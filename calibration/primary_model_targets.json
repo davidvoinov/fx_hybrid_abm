@@ -1,0 +1,523 @@
+{
+  "model_name": "primary_fx_micromarket",
+  "version": "2026-08-11j",
+  "scope": "Scenario-aware calibration matrix for the single primary FX micromarket model.",
+  "ingestion_method": "Semi-automated pypdf extraction plus hand-curated scale-matched proxies where the available literature is not directly in model units.",
+  "calibration_scenarios": [
+    {
+      "name": "baseline_primary",
+      "preset": null,
+      "n_iter": 1000,
+      "description": "Primary baseline without explicit exogenous shock."
+    },
+    {
+      "name": "dealer_liquidity_crisis",
+      "preset": "dealer_liquidity_crisis",
+      "n_iter": 1000,
+      "description": "Dealer-balance-sheet crisis used for withdrawal and resiliency targets."
+    },
+    {
+      "name": "funding_liquidity_shock",
+      "preset": "funding_liquidity_shock",
+      "n_iter": 1000,
+      "description": "Funding-liquidity stress scenario for propagation metrics."
+    }
+  ],
+  "targets": [
+    {
+      "observable": "quoted_spread_bps",
+      "evaluation_scenario": "baseline_primary",
+      "source": "CME Group, primary FX liquidity on EBS (2024); Lallouache and Abergel, Tick size reduction and price clustering in a FX order book, arXiv 1307.5440",
+      "source_urls": [
+        "https://www.cmegroup.com/news/2024/strengthening-fx-primary-liquidity-on-ebs.html",
+        "https://arxiv.org/abs/1307.5440"
+      ],
+      "market_scope": "EUR/USD on the primary interdealer venue, which for this pair is EBS. The model has no intraday session cycle, so it represents one homogeneous liquidity regime rather than an average over the day.",
+      "statistic": "median quoted spread in normal conditions, in bps of the reference price; price-grid diagnostic",
+      "parameter_mapping": [
+        "fast_lp_base_spread_bps",
+        "mm_alpha0_base",
+        "mm_alpha1"
+      ],
+      "accepted_error_band": {
+        "absolute": 0.15
+      },
+      "objective_weight": 0.0,
+      "gating": false,
+      "block": "spread",
+      "units": "bps",
+      "target_range": {
+        "low": 0.4,
+        "high": 0.8
+      },
+      "confidence": "low",
+      "match_type": "price_grid_diagnostic",
+      "source_excerpt": "Top of Book spreads witnessed a significant 30% reduction, Average Top of Book stands at 0.63 pips throughout the day. ... Over 20% of EUR/USD volume is now being traded on quarter and three-quarter pip increments.",
+      "ingestion_note": "REVISED 2026-08-10 after source and statistic audit. CME reports an average top-of-book spread, not a median. The model median sits on one tick, the minimum representable spread, so it is retained as a transparent price-grid diagnostic but carries no objective weight and cannot determine acceptance. The gate is now the mean observable below, matching the statistic actually published. Lallouache and Abergel document the March 2011 reduction from 1e-4 to 1e-5 and spread modes of nine and thirteen decimal ticks; they do not support the earlier claim that EBS adopted half-pip pricing in September 2012. The model grid of half a basis point is a modelling choice, not a quoted venue rule. CME reports that more than a fifth of EUR/USD volume traded on quarter- and three-quarter-pip increments in 2024, so the model grid remains coarser than an important part of the live venue."
+    },
+    {
+      "observable": "near_touch_depth",
+      "evaluation_scenario": "baseline_primary",
+      "source": "Lo_Hall_Resiliency_of_the_limit_order_book_Accepted_Manuscript.pdf",
+      "market_scope": "dealer-dominated limit-order-book depth at the best quotes",
+      "statistic": "one-sided touch depth at best bid/ask",
+      "parameter_mapping": [
+        "mm_d0_base",
+        "mm_d1",
+        "mm_d2",
+        "mm_d3",
+        "clob_support_max_share"
+      ],
+      "objective_weight": 0.0,
+      "gating": false,
+      "reported_only": true,
+      "block": "depth",
+      "units": "model base units",
+      "confidence": "none",
+      "match_type": "unidentified_diagnostic",
+      "source_excerpt": "Table 2 reports L1 bid volumes for large names such as 6.360, 5.654, 1.793 and 0.952 (x1000 shares).",
+      "ingestion_note": "REPORTED ONLY. The source is ASX equities with no designated market makers; there is no transparent conversion from its share counts into simulator base units. The realised model depth remains visible, but the former value 220 and its tolerance have been removed because they were not an externally identified FX/EBS target. A numerical acceptance band requires direct FX L1 notional depth or a scale conversion fixed before observing the simulation."
+    },
+    {
+      "observable": "order_flow_autocorrelation",
+      "evaluation_scenario": "baseline_primary",
+      "source": "orderflow.pdf",
+      "market_scope": "EUR/USD high-trading-density signed order flow and CLOB-facing persistence",
+      "statistic": "lag-1 autocorrelation of non-zero signed CLOB-side order flow",
+      "parameter_mapping": [
+        "hedger_flow_persistence",
+        "retail_flow_persistence",
+        "institutional_flow_persistence",
+        "common_flow_response"
+      ],
+      "accepted_error_band": {
+        "absolute": 0.015
+      },
+      "objective_weight": 0.75,
+      "gating": false,
+      "block": "orderflow",
+      "units": "rho",
+      "target_range": {
+        "low": 0.03,
+        "high": 0.1
+      },
+      "confidence": "medium",
+      "match_type": "literature_constrained_proxy",
+      "source_excerpt": "Table D.1 ... EUR/USD ... the statistics in column (ii) test for the presence of (residual) serial correlation in the price changes, order flow and bid-ask spread process.",
+      "ingestion_note": "Switched from raw CLOB-flow imbalance rho to signed non-zero CLOB flow rho. The new band enforces small-but-material positive serial dependence consistent with high-trading-density EUR/USD rather than the old 0.10 ± 0.10 convenience proxy."
+    },
+    {
+      "observable": "order_flow_mean_run_length",
+      "evaluation_scenario": "baseline_primary",
+      "source": "orderflow.pdf",
+      "market_scope": "EUR/USD high-trading-density parent-order clustering diagnostic",
+      "statistic": "mean run length of non-zero signed CLOB-side order flow",
+      "parameter_mapping": [
+        "hedger_flow_persistence",
+        "retail_flow_persistence",
+        "institutional_flow_persistence",
+        "common_flow_response"
+      ],
+      "accepted_error_band": {
+        "absolute": 0.25
+      },
+      "objective_weight": 0.0,
+      "gating": false,
+      "block": "orderflow",
+      "units": "consecutive signed-flow events",
+      "target_range": {
+        "low": 1.9,
+        "high": 2.8
+      },
+      "confidence": "low",
+      "match_type": "derived_diagnostic",
+      "source_excerpt": "Table D.1 documents non-zero EUR/USD order-flow serial dependence in high trading density windows, motivating short same-sign run clustering rather than iid flow signs.",
+      "ingestion_note": "Diagnostic only: this companion metric checks short parent-order clustering so the calibration does not rely exclusively on lag-1 autocorrelation. The band is deliberately modest and rules out both iid signs and unrealistically long toxic meta-order runs."
+    },
+    {
+      "observable": "impact_curve",
+      "evaluation_scenario": "baseline_primary",
+      "source": "orderflow.pdf",
+      "market_scope": "concave impact across trade-size buckets",
+      "statistic": "impact of a medium trade bucket expressed in model units",
+      "parameter_mapping": [
+        "mm_d0_base",
+        "mm_d1",
+        "mm_d2",
+        "clob_anchor_strength"
+      ],
+      "objective_weight": 0.0,
+      "gating": false,
+      "reported_only": true,
+      "block": "impact",
+      "units": "bps",
+      "confidence": "none",
+      "match_type": "unidentified_diagnostic",
+      "source_excerpt": "The average magnitude of the significant c1 corresponding to a price impact roughly ranges from 20 to 72 basis points per $1 billion in the order flow.",
+      "ingestion_note": "REPORTED ONLY. The paper expresses impact per $1 billion, while the simulator statistic uses a model trade-size bucket with no predeclared notional conversion. The former 0.5 bps anchor has therefore been removed rather than retained as a zero-weight pseudo-target."
+    },
+    {
+      "observable": "dealer_withdrawal_share",
+      "evaluation_scenario": "dealer_liquidity_crisis",
+      "source": "bis.pdf",
+      "market_scope": "dealer balance-sheet constrained stress episodes",
+      "statistic": "share of dealers withdrawn during the shock window",
+      "parameter_mapping": [
+        "mm_withdraw_threshold",
+        "mm_reentry_threshold",
+        "mm_loss_threshold_bps",
+        "maintenance_margin_ratio"
+      ],
+      "objective_weight": 0.0,
+      "gating": false,
+      "reported_only": true,
+      "block": "dealer_stress",
+      "units": "share",
+      "confidence": "none",
+      "match_type": "unidentified_diagnostic",
+      "source_excerpt": "At times when dealers' intermediation capacity is constrained the cost of liquidity provision increases disproportionately relative to dealer-intermediated volume.",
+      "ingestion_note": "REPORTED ONLY. The former 0.30 anchor was circular because it was re-anchored on earlier simulator output, while the BIS evidence establishes the economic direction but not a dealer-exit share for a comparable episode. The numerical target and tolerance have been removed. Identification is now through a separate 300-seed mechanism audit: low calm false-positive frequency, high crisis activation, wide separation of their confidence bounds, no scripted crisis pause, and no full dealer evacuation."
+    },
+    {
+      "observable": "funding_liquidity_stress_propagation",
+      "evaluation_scenario": "funding_liquidity_shock",
+      "source": "banti_phylaktis2015",
+      "source_urls": [
+        "https://doi.org/10.1016/j.jimonfin.2014.11.002",
+        "https://papers.ssrn.com/sol3/papers.cfm?abstract_id=2081602"
+      ],
+      "market_scope": "funding stress propagation to spreads and depth",
+      "statistic": "correlation proxy between funding stress and quoted spread",
+      "parameter_mapping": [
+        "mm_alpha2",
+        "mm_d2",
+        "borrow_spread_multiplier",
+        "short_borrow_spread_multiplier"
+      ],
+      "objective_weight": 0.0,
+      "gating": false,
+      "reported_only": true,
+      "block": "funding",
+      "units": "correlation_proxy",
+      "confidence": "none",
+      "match_type": "unidentified_diagnostic",
+      "source_excerpt": "Overall, our explanatory variables capture an appreciable fraction of the monthly time series variation in market wide liquidity of around 20%.",
+      "ingestion_note": "REPORTED ONLY. Banti and Phylaktis report regression explanatory power for monthly market-wide FX liquidity, not this contemporaneous correlation inside a deliberately shocked scenario. Neither 0.4 nor sqrt(0.20) is a valid target for this observable, so the numerical anchor and tolerance have been removed. The separately defined sign target retains the restriction the literature actually supports.",
+      "known_limitation": "The model's funding-spread comovement is high because the scenario deliberately moves funding costs. Its magnitude is a model diagnostic, not an empirical match."
+    },
+    {
+      "observable": "funding_spread_comovement_sign",
+      "evaluation_scenario": "funding_liquidity_shock",
+      "source": "banti_phylaktis2015",
+      "source_urls": [
+        "https://doi.org/10.1016/j.jimonfin.2014.11.002",
+        "https://papers.ssrn.com/sol3/papers.cfm?abstract_id=2081602"
+      ],
+      "market_scope": "direction of funding stress transmission to FX transaction costs",
+      "statistic": "sign of the correlation between funding cost and quoted spread",
+      "parameter_mapping": [
+        "mm_alpha2",
+        "mm_d2",
+        "borrow_spread_multiplier",
+        "short_borrow_spread_multiplier"
+      ],
+      "accepted_error_band": {
+        "qualitative": "sign must match the published direction"
+      },
+      "objective_weight": 1.0,
+      "gating": true,
+      "block": "funding",
+      "units": "sign",
+      "target_value": 1.0,
+      "confidence": "high",
+      "match_type": "direct",
+      "source_excerpt": "Our results show that (i) funding liquidity constraints measured by the availability of outstanding repos reduce FX market liquidity, and their impact is stronger when they are associated with an increase in the costs of funding and a shortening of their maturity",
+      "ingestion_note": "The magnitude of funding transmission has no comparable published statistic at this frequency, but its direction does, and it is established in more than one independent study: Banti and Phylaktis find that tighter repo availability raises FX transaction costs, and Mancini, Ranaldo and Wrampelmeyer find that a higher TED spread and a higher VIX go with lower FX liquidity. Gating the sign keeps a falsifiable restriction on the channel without asserting a number the literature does not supply. A model in which funding stress narrowed spreads would fail here."
+    },
+    {
+      "observable": "amm_volume_share",
+      "evaluation_scenario": "baseline_primary",
+      "source": "ssrn-3808755.pdf",
+      "market_scope": "share of routed flow executed on AMMs",
+      "statistic": "aggregate successful customer volume routed to AMMs divided by aggregate successful routed customer volume",
+      "parameter_mapping": [
+        "amm_share_pct",
+        "cpmm_bias_bps",
+        "cost_noise_std",
+        "routing_cost_scale_bps",
+        "routing_prior_mix_cap",
+        "routing_basis_scale_bps",
+        "routing_clob_depth_multiple",
+        "routing_amm_depth_multiple",
+        "hfmm_fee",
+        "hfmm_reserves"
+      ],
+      "objective_weight": 0.0,
+      "gating": false,
+      "reported_only": true,
+      "block": "routing",
+      "units": "share",
+      "confidence": "none",
+      "match_type": "unidentified_design_diagnostic",
+      "source_excerpt": "Despite this restricted strategy space for liquidity provision, AMMs have experienced significant growth in trading share since 2020.",
+      "ingestion_note": "REPORTED ONLY. The source supports AMM growth and coexistence, but does not identify a numerical share for the modelled FX/EBS market. The former point target and tolerance have been removed. amm_share_pct is therefore only a weak routing prior under liquidity_aware choice. The reported estimand is a ratio of aggregate successful customer volumes, not an unweighted average of per-second shares with inactive seconds coded as zero. Arbitrage flow is reported separately because it is not customer routing."
+    },
+    {
+      "observable": "fx_amm_parameter_sanity",
+      "evaluation_scenario": "baseline_primary",
+      "source": "r_qt1312e.pdf",
+      "market_scope": "FX-specific AMM participation sanity bounds",
+      "statistic": "reserve scale, fee bands, and basis persistence plausibility",
+      "parameter_mapping": [
+        "cpmm_reserves",
+        "hfmm_reserves",
+        "cpmm_fee",
+        "hfmm_fee",
+        "hfmm_A"
+      ],
+      "accepted_error_band": {
+        "qualitative": "within literature sanity bounds"
+      },
+      "objective_weight": 0.0,
+      "gating": false,
+      "block": "amm_sanity",
+      "units": "pass_share",
+      "target_value": 1.0,
+      "confidence": "low",
+      "match_type": "engineering_sanity_diagnostic",
+      "qualitative_bounds": {
+        "cpmm_fee": {
+          "min": 0.0005,
+          "max": 0.01
+        },
+        "hfmm_fee": {
+          "min": 0.0001,
+          "max": 0.005
+        },
+        "hfmm_A": {
+          "min": 2.0,
+          "max": 100.0
+        },
+        "pool_base_reserves": {
+          "min": 100.0,
+          "max": 50000.0
+        },
+        "avg_basis_bps": {
+          "max": 25.0
+        }
+      },
+      "source_excerpt": "Trading in the FX market reached an all-time high of $5.3 trillion per day in April 2013 ... spot trading almost reached the same volume as FX swaps at $2.05 trillion per day.",
+      "ingestion_note": "WITHDRAWN FROM GATING 2026-08-10. The cited FX turnover survey contains no AMM reserve, fee or amplification estimates. These bounds remain useful engineering checks, but calling them literature-calibrated acceptance criteria would overstate the source. They therefore carry no objective weight and do not determine acceptance."
+    },
+    {
+      "observable": "dealer_order_lifetime_median_seconds",
+      "evaluation_scenario": "baseline_primary",
+      "source": "ECB Foreign Exchange Contact Group, CME/LSEG presentation, 25 June 2026, slide 5",
+      "source_urls": [
+        "https://www.ecb.europa.eu/paym/groups/pdf/fxcg/2026/20260625/Item-3-Presentation-CME-LSEG.pdf"
+      ],
+      "market_scope": "bank-owned limit orders on EBS",
+      "statistic": "Kaplan-Meier median lifetime of dealer-owned limit orders, in seconds, with live end-of-window orders treated as right-censored",
+      "parameter_mapping": [
+        "mm_quote_life",
+        "quote_refresh_tol_bps"
+      ],
+      "accepted_error_band": {
+        "absolute": 60.0
+      },
+      "objective_weight": 1.0,
+      "gating": true,
+      "block": "dealer_lifecycle",
+      "units": "seconds",
+      "target_value": 290.0,
+      "confidence": "high",
+      "match_type": "direct_primary_source_statistic",
+      "source_excerpt": "Median order lifetime (sec) ... Bank ... EBS Market 290.",
+      "ingestion_note": "REVISED 2026-08-11 AFTER LIFECYCLE AND CENSORING AUDIT. The ECB-hosted CME/LSEG presentation directly reports the bank median on EBS. One model tick is one second. Each quote now receives an independent geometric cancellation clock whose configured 290 seconds is a distributional median, not a deterministic cap or an accepted result. Fills, stale-price amendments and withdrawals also terminate orders. The simulation statistic is the Kaplan-Meier median, retaining live orders at the finite window boundary as right-censored exposure; the completed-only median remains reported as a bias diagnostic. On development seed 42, the t=999 KM estimate was 259.0 seconds and the same early cohort's fully matured empirical median at t=4999 was 259.5 seconds. Structural gates separately reject lifecycle point masses, synchronized cancellation pulses and uncategorized endings."
+    },
+    {
+      "observable": "nonbank_order_lifetime_median_seconds",
+      "evaluation_scenario": "baseline_primary",
+      "source": "ECB Foreign Exchange Contact Group, CME/LSEG presentation, 25 June 2026, slide 5",
+      "source_urls": [
+        "https://www.ecb.europa.eu/paym/groups/pdf/fxcg/2026/20260625/Item-3-Presentation-CME-LSEG.pdf"
+      ],
+      "market_scope": "non-bank-owned limit orders on EBS",
+      "statistic": "Kaplan-Meier median lifetime of fast non-bank limit orders, in seconds, with live end-of-window orders treated as right-censored",
+      "parameter_mapping": [
+        "fast_lp_quote_life"
+      ],
+      "accepted_error_band": {
+        "absolute": 1.0
+      },
+      "objective_weight": 1.0,
+      "gating": true,
+      "block": "dealer_lifecycle",
+      "units": "seconds",
+      "target_value": 2.95,
+      "confidence": "high",
+      "match_type": "direct_primary_source_statistic",
+      "source_excerpt": "Median order lifetime (sec) ... Non-Bank ... EBS Market 2.95.",
+      "ingestion_note": "The model maps one tick to one second and estimates the lifetime median with the same right-censoring rule used for bank quotes. Independent per-order clocks replace the former provider-wide refresh cycle. This is a separate gate from bank order life, so the bank calibration cannot be obtained by relabelling all providers as slow; atom and synchronization checks also prevent a configured three-second clock from passing through a bulk cancellation pulse."
+    },
+    {
+      "observable": "dealer_maker_volume_share",
+      "evaluation_scenario": "baseline_primary",
+      "source": "CME Group, Building a Healthy FX Marketplace (2023), and ECB FXCG CME/LSEG presentation (2026), slide 5",
+      "source_urls": [
+        "https://www.cmegroup.com/articles/2023/building-a-healthy-fx-marketplace.html",
+        "https://www.ecb.europa.eu/paym/groups/pdf/fxcg/2026/20260625/Item-3-Presentation-CME-LSEG.pdf"
+      ],
+      "market_scope": "executed passive volume on EBS, bank versus non-bank",
+      "statistic": "bank-dealer share of executed passive CLOB volume",
+      "parameter_mapping": [
+        "n_mm",
+        "n_fast_lp",
+        "fast_lp_base_qty",
+        "mm_d0_base"
+      ],
+      "objective_weight": 1.0,
+      "gating": true,
+      "block": "participant_composition",
+      "units": "share",
+      "target_range": {
+        "low": 0.55,
+        "high": 0.85
+      },
+      "confidence": "medium",
+      "match_type": "derived_from_two_primary_statistics",
+      "source_excerpt": "Banks constitute 62% of EBS Market volume; bank make:take is 60:40 and non-bank make:take is 37:63.",
+      "ingestion_note": "This gate is deliberately on executed maker volume, not touch ownership or the share of resting orders. Combining the two source statistics gives an approximate bank share of passive volume of (0.62*0.60)/[(0.62*0.60)+(0.38*0.37)] = 0.726. The stated 0.55-0.85 interval is already the full uncertainty band for the fact that the venue-share and make:take statistics need not cover precisely the same sample; no second tolerance is applied outside it. It rejects both the earlier regime in which fast non-bank firms supplied roughly three quarters of passive executions and a mechanically all-bank book."
+    },
+    {
+      "observable": "executed_volume_per_second",
+      "evaluation_scenario": "baseline_primary",
+      "source": "CME Group 2024 annual report, EBS Spot average daily notional volume",
+      "market_scope": "all EBS Spot pairs; conservative upper bound for the modelled EUR/USD segment",
+      "statistic": "executed model base units per second, with one unit approximately EUR 1 million",
+      "parameter_mapping": [
+        "fx_flow_intensity_scale"
+      ],
+      "objective_weight": 0.0,
+      "gating": false,
+      "reported_only": true,
+      "block": "flow_scale",
+      "units": "EUR million per second",
+      "confidence": "none",
+      "match_type": "noncomparable_context_diagnostic",
+      "source_excerpt": "EBS Spot average daily notional volume was $55.8 billion in 2024.",
+      "ingestion_note": "REPORTED ONLY. Dividing all-pair EBS Spot ADNV by 86,400 seconds gives context of about 0.65 million currency units per second, but the source mixes all pairs and the model omits the intraday activity cycle. The former 0.10 lower edge was an engineering choice, not a literature estimate, so the range and pass/fail label have been removed."
+    },
+    {
+      "observable": "quoted_spread_mean_bps",
+      "evaluation_scenario": "baseline_primary",
+      "source": "CME Group, primary FX liquidity on EBS (2024)",
+      "source_urls": [
+        "https://www.cmegroup.com/news/2024/strengthening-fx-primary-liquidity-on-ebs.html"
+      ],
+      "market_scope": "EUR/USD on EBS, average across the trading day",
+      "statistic": "mean quoted spread, in bps of the reference price",
+      "parameter_mapping": [
+        "fast_lp_base_spread_bps",
+        "mm_alpha0_base"
+      ],
+      "accepted_error_band": {
+        "absolute": 0.3
+      },
+      "objective_weight": 1.0,
+      "gating": true,
+      "block": "spread",
+      "units": "bps",
+      "target_value": 0.57,
+      "confidence": "medium",
+      "match_type": "direct_statistic_with_scope_limitation",
+      "source_excerpt": "Average Top of Book stands at 0.63 pips throughout the day.",
+      "ingestion_note": "This is now the spread gate because its statistic matches the CME publication: mean against reported average. At EUR/USD near 1.10, 0.63 pips is about 0.57 basis points. The absolute tolerance of 0.30 bps is deliberately wider than a tight measurement error because the source averages the whole trading day while the model has no intraday session cycle. The median remains reported separately as a price-grid diagnostic."
+    }
+  ],
+  "withdrawn_targets": [
+    {
+      "observable": "cross_venue_basis_bps",
+      "withdrawn": "2026-08-10",
+      "reason": "The cited JRFM article is about return connectedness among automated-market-maker protocol tokens. It does not estimate a price wedge between an order book and an AMM, and therefore cannot support either the three to twenty-five basis point range or a strictly positive lower bound. The model metric remains available as a phase diagnostic, but no literature-calibrated acceptance claim is made until a directly comparable spot-FX or same-asset cross-venue source is identified.",
+      "measured_before_withdrawal": "1.59 bps in the seed-42 baseline audit",
+      "superseded_source": "jrfm-16-00259.pdf"
+    },
+    {
+      "observable": "recovery_half_life_ticks",
+      "withdrawn": "2026-08-07",
+      "reason": "The target of twenty ticks existed only because the tick had no definition. It mapped a literature half life of one to three seconds onto twenty ticks through the assertion that a tick aggregates several book events, which was an assumption standing in for a missing time contract. The price process has since been anchored, so a tick has a length, but that is not on its own a time contract for the whole model, and the measured statistic is not the statistic the source estimates either. Lo and Hall estimate the decay of an initial impulse through a vector autoregression on an Australian equity book under aggressive order and cancellation shocks. The metric here takes half of the realised peak after a dealer balance sheet crisis and requires three stable observations. Neither the scenario nor the statistic matches, so the target has been removed rather than restated in new units. A micro resiliency test built to match the source, measured in seconds, belongs in its own experiment. The half life of the dealer crisis stays an internal diagnostic until a source exists for that regime.",
+      "measured_before_withdrawal": "16, 3 and 7 ticks on three seeds, median 7"
+    }
+  ],
+  "revision_history": [
+    {
+      "version": "2026-08-07",
+      "supersedes": "2026-04-27",
+      "change": "Two targets changed status after the tick was given a definition and the statistics behind them were compared with their sources. near_touch_depth was demoted to a diagnostic, gating false and objective weight zero, because it is a quantity rather than a duration, its source is an equity book with no designated market makers, and no conversion from a share count into simulator units was ever fixed. recovery_half_life_ticks was withdrawn outright, because its value of twenty ticks stood in for a missing time contract and the statistic measured here is not the statistic its source estimates. Neither change was made to improve a score. The suite passed its gates before and after, and the demoted target is reported and still fails.",
+      "note_on_prior_registration": "The design targets of the 2026-04-27 matrix were fixed in advance of the runs they judge. These two were changed afterwards and that is recorded here rather than presented as part of the original registration."
+    },
+    {
+      "date": "2026-08-08",
+      "observable": "quoted_spread_bps",
+      "change": "Retargeted from 1.5 to 2.5 bps to 0.4 to 0.8 bps.",
+      "reason": "The old band was taken from client routed execution while the order lifetime and book concentration anchors adopted at the same time are interdealer statistics from EBS. A market cannot be both layers at once. EBS was chosen because EUR/USD is its flagship pair and because the economics of the paper, dealers withdrawing and a funded backstop, live on the primary venue.",
+      "enabling_fix": "The quoted spread was not a function of any parameter before this. A floor of 0.01 price units on the half spread of the automated providers pinned the market at 2.00 bps at a numeraire of one hundred, and it sat just under the value the quoting rule produced at the calibrated coefficients, so it never showed itself. Lowering any quoting coefficient moved nothing. The floor is now half a tick, which is the constraint that actually exists."
+    },
+    {
+      "date": "2026-08-08",
+      "observable": "dealer_withdrawal_share",
+      "change": "Removed from gating and given zero objective weight.",
+      "reason": "The target was re-anchored to the model's own output in June 2026, after the withdrawn share metric was changed to count scenario imposed pauses. Testing the model against a number taken from the model is circular. A check reported earlier today, that eight seeds out of eight fell inside the band, is withdrawn on the same ground.",
+      "replacement_needed": true
+    },
+    {
+      "date": "2026-08-08",
+      "observable": "quoted_spread_bps",
+      "change": "Confidence lowered to low, mean added as a reported diagnostic, tick provenance claim removed.",
+      "reason": "An external audit observed that the accepted median equals one model tick, so the band is largely satisfied by the grid, and that the source reports a mean while the gate checked a median. Both are now stated. The claim that EBS adopted half pip pricing in September 2012 was not supported by the work cited for it and has been withdrawn."
+    },
+    {
+      "version": "2026-08-08c",
+      "date": "2026-08-10",
+      "change": "funding_liquidity_stress_propagation demoted to a zero weight diagnostic and reanchored, and funding_spread_comovement_sign added as a gating target in its place. The old 0.4 came from a sentence about carry trade premia and was both the wrong statistic, an R squared read as a correlation, and the wrong pair of variables. No published figure measures a tick frequency funding to spread correlation under a controlled shock, so the magnitude is now reported and not gated, while the direction, which two independent studies establish, is gated. The demoted diagnostic still reports its realised value and the gap to the field estimate is recorded as a limitation."
+    },
+    {
+      "version": "2026-08-10d",
+      "date": "2026-08-10",
+      "change": "The EBS spread gate was moved from the median to the mean so that the model statistic matches the average reported by CME. The median remains a zero-weight grid diagnostic. cross_venue_basis_bps was withdrawn because its cited JRFM paper studies returns of AMM protocol tokens rather than a CLOB-AMM price wedge. amm_volume_share and fx_amm_parameter_sanity were demoted to zero-weight diagnostics because their sources support only qualitative coexistence or aggregate FX turnover, not the numerical values used here.",
+      "score_policy": "These changes follow source-statistic matching and were made without tuning model parameters to improve the acceptance score. The withdrawn and demoted observables remain reported where meaningful."
+    },
+    {
+      "version": "2026-08-10e",
+      "date": "2026-08-10",
+      "change": "Added completed dealer-order median lifetime as a zero-weight validation diagnostic and clarified that the 290-second parameter is a ceiling, not a matched median.",
+      "reason": "The audit found that mapping a published median directly to a maximum quote life hid the realised order-age discrepancy. The new observable exposes that discrepancy without tuning the model or promoting a secondary source to a gate."
+    },
+    {
+      "version": "2026-08-11g",
+      "date": "2026-08-11",
+      "change": "Promoted bank and non-bank completed order lifetimes to separate gates after locating the primary ECB-hosted source, added a bank maker-volume composition gate derived from two primary CME statistics, and added a seed-panel mechanism audit for endogenous dealer withdrawal.",
+      "reason": "The prior model could match a 290-second setting while real dealer orders lived eight seconds, and its non-bank firms supplied roughly three quarters of passive executions. Both were incompatible with the chosen EBS layer. The exit-share target remains non-gating because the literature does not identify a numerical share; the panel instead requires zero calm exit, no scripted pause, stress activation on at least 75 percent of seeds, and no full dealer evacuation."
+    },
+    {
+      "version": "2026-08-11h",
+      "date": "2026-08-11",
+      "change": "Removed numerical pass/fail labels from touch depth, impact, dealer exit share, funding-correlation magnitude and AMM flow share, while retaining their realised values as reported-only diagnostics. Replaced the impossible zero-calm-exit rule with Wilson-interval tests of a calm false-positive rate, crisis activation rate and conservative separation gap.",
+      "reason": "The cited evidence does not identify comparable numerical targets for those five observables. In a stochastic endogenous model, rare calm activation is possible; identification comes from strong separation between calm and crisis frequencies, not a claim that an event has exactly zero probability.",
+      "score_policy": "The stored 300-seed trajectories were reassessed without changing simulation parameters. Unsupported failed labels disappeared, while every externally supported EBS gate and every mechanism check remained binding."
+    },
+    {
+      "version": "2026-08-11i",
+      "date": "2026-08-11",
+      "change": "Moved aggregate EBS Spot volume per second to reported-only context and added direct primary URLs for the EBS spread, order-life, participant-composition and funding-liquidity evidence.",
+      "reason": "All-pair daily EBS volume divided by wall-clock seconds is not a comparable EUR/USD point target for a homogeneous-session model; its former lower bound was an engineering choice. It remains useful context but cannot validate calibration."
+    },
+    {
+      "version": "2026-08-11j",
+      "date": "2026-08-11",
+      "change": "Replaced provider-wide deterministic quote refreshes with independent per-order stochastic lifecycles; changed both EBS lifetime estimators to Kaplan-Meier medians with administrative right-censoring; added per-seed gates for two-sidedness, lifetime atoms, synchronized endings, reason coverage and lifecycle sample size; corrected the official CME 2024 URL.",
+      "reason": "A configured median or cap is not a validation statistic. The former bank result was an 85-90 percent point mass at exactly 290 seconds, while fast quotes could inherit a shared clock and disappear after one second. Completed-only medians were also biased downward in a finite window. A long-followup development cohort confirmed the Kaplan-Meier estimate against the fully matured empirical median within 0.5 seconds."
+    }
+  ]
+}

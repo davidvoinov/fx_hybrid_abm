@@ -1,0 +1,106 @@
+{
+  "amendment_version": "lp-amendment-v2a",
+  "amendment_type": "post_run_non_discretionary_zero_denominator_correction",
+  "base_protocol": {
+    "path": "calibration/final_protocol.json",
+    "version": "book-lp-final-v2",
+    "sha256": "c59b2316ddfc0aa99abf42e09e29a2cc350cbafcd766a943dbb5f7ce4b5c01de"
+  },
+  "change_control": {
+    "timing": "post_run",
+    "discretion": "non_discretionary",
+    "reason": "zero_denominator_domain_correction",
+    "model_changed": false,
+    "acceptance_thresholds_changed": false,
+    "raw_measurements_changed": false,
+    "estimand_numerators_changed": false,
+    "estimand_denominators_changed": false,
+    "seed_or_configuration_design_changed": false,
+    "permitted_changes": [
+      "routing_report_zero_denominator_classification",
+      "lp_acceptance_zero_denominator_support_check"
+    ]
+  },
+  "correction": {
+    "estimand": "amm_arbitrage_share_of_amm_execution",
+    "numerator": "amm_arbitrage_volume_base",
+    "denominator": "amm_execution_volume_base",
+    "zero_denominator_rule": "denominator_equals_zero_and_numerator_equals_zero_requires_null_ratio",
+    "positive_denominator_rule": "finite_ratio_equals_numerator_divided_by_denominator",
+    "acceptance_identity": "n_finite_plus_n_zero_denominator_equals_n_observations_equals_requested_and_n_invalid_equals_zero"
+  },
+  "original_frozen_signatures": {
+    "survival_measurement_signature": "94b60e36107a5119",
+    "survival_report_signature": "7b6e342955154b86",
+    "sensitivity_report_signature": "40b32dff55f9af21",
+    "routing_measurement_signature": "6b4a7912057525f4",
+    "routing_report_signature": "5b4b3661bbb03fdb",
+    "routing_protocol_signature": "1cbc624cf38f5faa",
+    "pnl_measurement_signature": "fde07c0c2a4278a2",
+    "pnl_report_signature": "fddcdefa3bf8aaa5",
+    "welfare_measurement_signature": "8b18a0d2518a3390",
+    "lp_acceptance_code_sha256": "27fca6e3e8f8c6f298d00db407b762148f906d6067d75c11f780858934435166"
+  },
+  "effective_frozen_signatures": {
+    "survival_measurement_signature": "94b60e36107a5119",
+    "survival_report_signature": "7b6e342955154b86",
+    "sensitivity_report_signature": "40b32dff55f9af21",
+    "routing_measurement_signature": "6b4a7912057525f4",
+    "routing_report_signature": "2aab79dfd86fa1bd",
+    "routing_protocol_signature": "1cbc624cf38f5faa",
+    "pnl_measurement_signature": "fde07c0c2a4278a2",
+    "pnl_report_signature": "fddcdefa3bf8aaa5",
+    "welfare_measurement_signature": "8b18a0d2518a3390",
+    "lp_acceptance_code_sha256": "0512faa38ded8a6c72891b0b37ec403f7db42833e56f278087a28eb28db12bc2"
+  },
+  "artifact_bindings": {
+    "book_development": {
+      "path": "output/final/book_development_v2_300.json",
+      "sha256": "f01b4c7c44d90d0901b693f1766ab59ae9bd2d9bf6e6e041376dcd28d14cc50e"
+    },
+    "book_holdout": {
+      "path": "output/final/book_holdout_v2_300.json",
+      "sha256": "81d46446d9f1b4fe56361091787c8d861e5abfed4c5aedf7690701a1854bbd52"
+    },
+    "primary_survival": {
+      "path": "output/resilience/lp_survival_final_holdout_300.json",
+      "sha256": "5067a51ddc52caff3991d75338dcbb8baa6f14a2a638a6d6a75f18e600909340"
+    },
+    "funded_survival": {
+      "path": "output/resilience/lp_survival_entry_validation_60.json",
+      "sha256": "3c96eeca10e9f9e374514355487c4b3574dde4ef4ece79b6d7c605edb5af85c0"
+    },
+    "rebate_survival": {
+      "path": "output/resilience/lp_survival_rebate_validation_60.json",
+      "sha256": "5b8bd1c8f0c2831b4ad7506a6e56549710760ac7e49fee293106cceedb1987ec"
+    },
+    "sensitivity": {
+      "path": "output/resilience/lp_sensitivity_final_60.json",
+      "sha256": "23ab2acb8fa3e9bac30551f9b8130af6619e6aa2170a5a39046f791768cd7a64"
+    },
+    "routing_original": {
+      "path": "output/resilience/routing_lp_sensitivity_pre_amendment_failed_60.json",
+      "sha256": "2b4b8030ed40b272006ae45028c6ac75115e1e53b0061996658842a4b4aace79"
+    },
+    "routing_effective": {
+      "path": "output/resilience/routing_lp_sensitivity_final_60.json",
+      "sha256": "a5bc8ebabb6688ed4d511c6d0870ebca2d6c7ab0b8504f1561df6d989025bbbd"
+    },
+    "pnl": {
+      "path": "output/resilience/lp_pnl_final_holdout_300.json",
+      "sha256": "bff88b3eadb9e83279ff4a14b2fb9bafdd41ee3cd494a8df2ba39d9d01619483"
+    },
+    "welfare_private_primary": {
+      "path": "output/resilience/welfare_primary_final_holdout_300.json",
+      "sha256": "89c75249d6ecba4e14d2d62372789a64b905cbc5b35b3f57b1034b75381456a8"
+    },
+    "welfare_full_loss_guarantee_upper_bound": {
+      "path": "output/resilience/welfare_loss_guarantee_final_holdout_300.json",
+      "sha256": "fdbddba14389f5aa4e84a596dd738da2ac9a6d3b4ad423b71773056d3d0eeac5"
+    },
+    "failed_acceptance": {
+      "path": "output/resilience/lp_acceptance_pre_amendment_failed.json",
+      "sha256": "34250fee18e3249b51c67298e154aa23017283e5c1015ac2a3f56286d8edfb34"
+    }
+  }
+}

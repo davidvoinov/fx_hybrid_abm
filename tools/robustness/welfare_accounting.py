@@ -1,0 +1,685 @@
+#!/usr/bin/env python3
+"""Auditable LP economics and partial-equilibrium welfare accounting.
+
+The model does not contain a utility or value-of-trade schedule.  It therefore
+cannot identify total welfare or the value of requests that do not execute.
+This module deliberately reports the narrower quantities the model *does*
+identify and keeps transfers separate from resource costs:
+
+* fees move value from takers to liquidity providers;
+* a subsidy moves quote currency from the sponsor to providers;
+* LVR moves value from providers to informed traders/arbitrageurs;
+* the outside option of committed capital is a real opportunity cost;
+* a matched-notional execution-cost reduction, measured only on successful
+  routed-customer fills from actual all-in execution prices against the common
+  pre-trade CLOB mid, is a user-side benefit proxy, not a complete
+  social-surplus estimate;
+* AMM arbitrage execution is reported separately.  It is not customer demand,
+  and neither its volume nor an unobserved arbitrage surplus enters the
+  user-benefit proxy.
+
+Subsidies are shown as transfers and cancel between providers and the sponsor.
+Fees do enter the user's private execution cost and the LP's private income;
+they may not be counted as a social gain. A paper may call the matched-cost
+number a partial-equilibrium user benefit, but must not call it total welfare
+without adding and identifying trader utility, dealer/counterparty incidence,
+and the value of unexecuted demand.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import math
+import os
+import sys
+from dataclasses import asdict, dataclass, field
+from multiprocessing import Pool as ProcessPool
+from typing import Iterable, Optional
+
+import numpy as np
+
+ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
+
+from main import (build_parser, _apply_preset_defaults, _resolve_main_routing,
+                  _auto_stress_around_shock, _seed_all, build_sim)
+from tools.robustness.lp_pnl_corrected import components
+from tools.robustness.signatures import measurement_signature, model_signature
+
+PRESET = 'dealer_liquidity_crisis'
+N_ITER = 1000
+CRISIS = (0, 100)
+ABSOLUTE_SIZE_BOUNDS = (5.0, 20.0)
+# The calibration maps one tick to one second and its funding anchor to 252
+# full FX trading days, not to every calendar second of the year.
+SECONDS_PER_YEAR = 252.0 * 24.0 * 60.0 * 60.0
+ESTIMAND_SCOPE = {
+    'name': 'matched_routed_customer_execution_cost_partial_equilibrium',
+    'customer_sample': 'successful_routed_customer_fills_only',
+    'matching': 'common_notional_within_fixed_absolute_size_buckets',
+    'arbitrage_treatment': 'separate_execution_telemetry_excluded_from_user_benefit',
+    'unexecuted_demand_treatment': 'reported_as_unpriced_quantity_difference',
+    'total_welfare_identified': False,
+}
+
+SUMMARY_METRICS = (
+    'with_execution_cost_bps',
+    'without_execution_cost_bps',
+    'matched_notional_user_benefit',
+    'matched_notional_user_benefit_bps',
+    'with_amm_customer_volume_base',
+    'with_arbitrage_volume_base',
+    'with_amm_execution_volume_base',
+    'with_arbitrage_share_of_amm_execution',
+    'capital_opportunity_cost',
+    'lp_operating_result',
+    'lp_operating_return',
+    'subsidy_paid_share_of_opening_capital',
+    'rate_transfer_paid',
+    'loss_rebate_paid',
+    'loss_rebate_share_of_opening_capital',
+    'provider_private_result_after_subsidy_and_capital',
+    'sponsor_fiscal_result',
+    'identified_user_benefit_less_capital_cost',
+    'user_side_net_benefit',
+    'dealer_withdrawal_change',
+)
+
+
+@dataclass(frozen=True)
+class ArmWindow:
+    executed_notional: float
+    taker_execution_cost: float
+    # ``None`` means the provider window could not be measured on this seed,
+    # which is a different statement from a measured result of zero.  A pool
+    # that had already wound down before the window opened used to be entered
+    # as an exact zero, and a median taken over a mixture of measured results
+    # and those zeros is pulled towards zero by the seeds that carry no
+    # information at all.
+    lp_opening_capital: Optional[float] = 0.0
+    lp_lvr: Optional[float] = 0.0
+    lp_fees: Optional[float] = 0.0
+    sponsor_transfer: float = 0.0
+    dealer_withdrawal_mean: float = 0.0
+    sponsor_rate_transfer: float = 0.0
+    sponsor_loss_rebate: float = 0.0
+    execution_buckets: dict = field(default_factory=dict)
+    amm_customer_volume_base: float = 0.0
+    arbitrage_volume_base: float = 0.0
+    arbitrage_share_of_amm_execution: Optional[float] = None
+
+    @property
+    def execution_cost_rate(self) -> float:
+        if self.executed_notional <= 0.0:
+            return float('nan')
+        return self.taker_execution_cost / self.executed_notional
+
+    @property
+    def lp_window_measurable(self) -> bool:
+        return None not in (self.lp_opening_capital, self.lp_lvr, self.lp_fees)
+
+    @property
+    def lp_operating_result(self) -> float:
+        if not self.lp_window_measurable:
+            return float('nan')
+        return self.lp_fees - self.lp_lvr
+
+
+def account_pair(with_amm: ArmWindow, without_amm: ArmWindow,
+                 annual_capital_rate: float = 0.029,
+                 window_seconds: float = 100.0,
+                 operator_resource_cost: float = 0.0) -> dict:
+    """Reconcile one paired window without treating transfers as welfare.
+
+    Execution costs are compared on the notional common to both arms.  This
+    avoids mechanically calling a high-volume arm worse merely because more
+    trades execute.  The residual difference in volume is exposed but not
+    priced because the model has no value-of-trade schedule.
+    """
+    common_notional = 0.0
+    user_benefit = 0.0
+    matched_buckets = {}
+    bucket_names = sorted(set(with_amm.execution_buckets)
+                          | set(without_amm.execution_buckets))
+    for bucket in bucket_names:
+        on = with_amm.execution_buckets.get(bucket, {})
+        off = without_amm.execution_buckets.get(bucket, {})
+        n_on = max(0.0, float(on.get('notional', 0.0)))
+        n_off = max(0.0, float(off.get('notional', 0.0)))
+        c_on = float(on.get('cost', 0.0))
+        c_off = float(off.get('cost', 0.0))
+        common = min(n_on, n_off)
+        if common <= 0.0 or n_on <= 0.0 or n_off <= 0.0:
+            continue
+        r_on, r_off = c_on / n_on, c_off / n_off
+        if not (math.isfinite(r_on) and math.isfinite(r_off)):
+            continue
+        benefit = common * (r_off - r_on)
+        common_notional += common
+        user_benefit += benefit
+        matched_buckets[bucket] = {
+            'common_notional': common,
+            'with_cost_rate': r_on,
+            'without_cost_rate': r_off,
+            'user_benefit': benefit,
+        }
+
+    r_with = with_amm.execution_cost_rate
+    r_without = without_amm.execution_cost_rate
+    benefit_method = 'fixed_absolute_size_buckets'
+    if not matched_buckets:
+        benefit_method = 'aggregate_common_notional_fallback'
+        common_notional = max(0.0, min(with_amm.executed_notional,
+                                       without_amm.executed_notional))
+        if not (math.isfinite(r_with) and math.isfinite(r_without)):
+            user_benefit = float('nan')
+        else:
+            user_benefit = common_notional * (r_without - r_with)
+    elif not math.isfinite(user_benefit):
+        user_benefit = float('nan')
+
+    # An unmeasurable provider window makes every quantity that depends on it
+    # unmeasurable too.  Carrying it as a zero would put a seed that says
+    # nothing into the middle of the distribution of seeds that do.
+    lp_measurable = with_amm.lp_window_measurable
+    if lp_measurable:
+        capital_cost = (max(0.0, with_amm.lp_opening_capital)
+                        * max(0.0, float(annual_capital_rate))
+                        * max(0.0, float(window_seconds)) / SECONDS_PER_YEAR)
+        private_lp = (with_amm.lp_operating_result + with_amm.sponsor_transfer
+                      - capital_cost)
+        sponsor = -with_amm.sponsor_transfer
+        provider_plus_sponsor = private_lp + sponsor
+    else:
+        capital_cost = float('nan')
+        private_lp = float('nan')
+        sponsor = float('nan')
+        provider_plus_sponsor = float('nan')
+    user_side_net = (user_benefit - capital_cost - operator_resource_cost
+                     if math.isfinite(user_benefit) and lp_measurable
+                     else float('nan'))
+
+    opening = max(0.0, with_amm.lp_opening_capital) if lp_measurable else 0.0
+    return {
+        'estimand_scope': dict(ESTIMAND_SCOPE),
+        'user_benefit_uses_routed_customer_fills_only': True,
+        'arbitrage_execution_in_user_benefit': False,
+        'arbitrage_surplus_identified': False,
+        'arbitrage_surplus_quote': None,
+        'common_executed_notional': common_notional,
+        'user_benefit_method': benefit_method,
+        'matched_size_buckets': matched_buckets,
+        'incremental_executed_notional': (with_amm.executed_notional
+                                          - without_amm.executed_notional),
+        'with_routed_customer_executed_notional': with_amm.executed_notional,
+        'without_routed_customer_executed_notional': without_amm.executed_notional,
+        'with_amm_customer_volume_base': with_amm.amm_customer_volume_base,
+        'with_arbitrage_volume_base': with_amm.arbitrage_volume_base,
+        'with_amm_execution_volume_base': (
+            with_amm.amm_customer_volume_base + with_amm.arbitrage_volume_base
+        ),
+        'with_arbitrage_share_of_amm_execution': (
+            with_amm.arbitrage_share_of_amm_execution
+        ),
+        'with_execution_cost_rate': r_with,
+        'without_execution_cost_rate': r_without,
+        'with_execution_cost_bps': r_with * 10_000.0 if math.isfinite(r_with) else float('nan'),
+        'without_execution_cost_bps': (r_without * 10_000.0
+                                       if math.isfinite(r_without) else float('nan')),
+        'matched_notional_user_benefit': user_benefit,
+        'matched_notional_user_benefit_bps': (
+            user_benefit / common_notional * 10_000.0
+            if common_notional > 0.0 and math.isfinite(user_benefit)
+            else float('nan')
+        ),
+        'lp_window_measurable': lp_measurable,
+        'lp_lvr': with_amm.lp_lvr if lp_measurable else None,
+        'lp_fee_income': with_amm.lp_fees if lp_measurable else None,
+        'lp_operating_result': with_amm.lp_operating_result,
+        'lp_operating_return': (with_amm.lp_operating_result / opening
+                                if opening > 0.0 else float('nan')),
+        'subsidy_paid_share_of_opening_capital': (
+            with_amm.sponsor_transfer / opening if opening > 0.0 else float('nan')
+        ),
+        'rate_transfer_paid': with_amm.sponsor_rate_transfer,
+        'loss_rebate_paid': with_amm.sponsor_loss_rebate,
+        'loss_rebate_share_of_opening_capital': (
+            with_amm.sponsor_loss_rebate / opening
+            if opening > 0.0 else float('nan')
+        ),
+        'capital_opportunity_cost': capital_cost,
+        'operator_resource_cost': float(operator_resource_cost),
+        'provider_private_result_after_subsidy_and_capital': private_lp,
+        'sponsor_fiscal_result': sponsor,
+        'provider_plus_sponsor_result': provider_plus_sponsor,
+        # ``None`` rather than ``False`` when there is no measured window: an
+        # identity that could not be evaluated has not been violated, and
+        # counting it as a violation would report a data gap as an accounting
+        # error.
+        'subsidy_transfer_cancels': (
+            bool(abs(
+                provider_plus_sponsor
+                - (with_amm.lp_operating_result - capital_cost)
+            ) <= 1e-9 * max(1.0, abs(provider_plus_sponsor)))
+            if lp_measurable else None
+        ),
+        # This combines an identified user-side monetary effect with the real
+        # opportunity cost of AMM capital. It is deliberately not summed with
+        # LP P&L, because unmatched notional and dealer/counterparty legs keep
+        # the model from closing a social-welfare ledger.
+        'identified_user_benefit_less_capital_cost': user_side_net,
+        'user_side_net_benefit': user_side_net,
+        'dealer_withdrawal_change': (with_amm.dealer_withdrawal_mean
+                                     - without_amm.dealer_withdrawal_mean),
+        'total_welfare_identified': False,
+        'unidentified_terms': [
+            'gross value and urgency of executed demand',
+            'value of unexecuted demand',
+            'value and exact composition of demand unmatched across arms',
+            'counterparty incidence of spread and price-impact revenue',
+            'counterparty to LVR/arbitrage gains',
+            'window-specific arbitrage surplus (execution volume is observed)',
+        ],
+    }
+
+
+def _window_bounds(shock: int, window: tuple[int, int], n: int) -> tuple[int, int]:
+    lo = max(0, shock + int(window[0]))
+    hi = min(n, shock + int(window[1]))
+    return lo, max(lo, hi)
+
+
+def _absolute_size_bucket(quantity: float) -> str:
+    if quantity <= ABSOLUTE_SIZE_BOUNDS[0]:
+        return 'q_le_5'
+    if quantity <= ABSOLUTE_SIZE_BOUNDS[1]:
+        return 'q_5_to_20'
+    return 'q_gt_20'
+
+
+def _common_reference_cost_bps(trade: dict, fallback_reference: float) -> float:
+    """Signed taker cost from an actual all-in fill and one common benchmark.
+
+    Positive is costly to the taker; negative is price improvement. Legacy
+    synthetic fixtures without an execution price retain their explicit cost
+    field, but every newly simulated trade carries ``all_in_exec_price``.
+    """
+    try:
+        execution_price = float(trade['all_in_exec_price'])
+        reference = float(trade.get('common_reference_price', fallback_reference))
+    except (KeyError, TypeError, ValueError):
+        return float(trade.get('cost_bps', float('nan')))
+    if not (math.isfinite(execution_price) and math.isfinite(reference)
+            and execution_price > 0.0 and reference > 0.0):
+        return float('nan')
+    side = str(trade.get('side', '')).lower()
+    if side == 'buy':
+        return 10_000.0 * (execution_price - reference) / reference
+    if side == 'sell':
+        return 10_000.0 * (reference - execution_price) / reference
+    return float('nan')
+
+
+def execution_window(sim, shock: int,
+                     window: tuple[int, int] = CRISIS) -> tuple[float, float, dict]:
+    """Routed-customer notional and all-in cost in quote currency.
+
+    ``MetricsLogger.trade_log`` is contractually the successful routed-customer
+    log; arbitrage legs live in ``arbitrage_volume``.  The explicit source
+    guard also prevents a future combined log (or a synthetic fixture) from
+    silently broadening this estimand.  Legacy customer records predate the
+    source tag and remain admissible unless they identify an arbitrageur.
+    """
+    prices = list(sim.logger.fair_price_series)
+    lo, hi = _window_bounds(shock, window, len(prices))
+    notional = 0.0
+    cost = 0.0
+    buckets = {}
+    for trade in sim.logger.trade_log:
+        source = trade.get('execution_source')
+        if source is not None and str(source) != 'routed_customer':
+            continue
+        if str(trade.get('trader_type', '')).lower() == 'ammarbitrageur':
+            continue
+        t = int(trade.get('t', -1))
+        if t < lo or t >= hi or t >= len(prices):
+            continue
+        q = max(0.0, float(trade.get('quantity', 0.0)))
+        fallback_price = float(prices[t])
+        p = float(trade.get('common_reference_price', fallback_price))
+        bps = _common_reference_cost_bps(trade, fallback_price)
+        if not (math.isfinite(q) and math.isfinite(p) and math.isfinite(bps)):
+            continue
+        trade_notional = q * p
+        notional += trade_notional
+        trade_cost = trade_notional * bps / 10_000.0
+        cost += trade_cost
+        bucket = _absolute_size_bucket(q)
+        row = buckets.setdefault(bucket, {'notional': 0.0, 'cost': 0.0})
+        row['notional'] += trade_notional
+        row['cost'] += trade_cost
+    return notional, cost, buckets
+
+
+def execution_composition_window(sim, shock: int,
+                                 window: tuple[int, int] = CRISIS
+                                 ) -> tuple[float, float, Optional[float]]:
+    """Customer and arbitrage AMM-leg base volume, kept as distinct flows."""
+    prices = list(sim.logger.fair_price_series)
+    lo, hi = _window_bounds(shock, window, len(prices))
+    customer = sum(
+        sum(float(value) for value in series[lo:hi])
+        for venue, series in getattr(sim.logger, 'flow_volume', {}).items()
+        if venue != 'clob'
+    )
+    if hasattr(sim.logger, 'arbitrage_volume_total'):
+        arbitrage = float(sim.logger.arbitrage_volume_total(start=lo, end=hi))
+    else:
+        arbitrage = sum(
+            sum(float(value) for value in series[lo:hi])
+            for series in getattr(sim.logger, 'arbitrage_volume', {}).values()
+        )
+    customer = max(0.0, float(customer))
+    arbitrage = max(0.0, float(arbitrage))
+    total = customer + arbitrage
+    share = arbitrage / total if total > 0.0 else None
+    return customer, arbitrage, share
+
+
+def lp_window(sim, shock: int,
+              window: tuple[int, int] = CRISIS
+              ) -> Optional[tuple[float, float, float]]:
+    """Opening capital, realised LVR and native fees across all pools.
+
+    ``None`` when a pool is present but its window cannot be measured, which
+    happens when the pool held nothing at the opening of the window or the
+    window runs past the end of the run.  Skipping such a pool and returning
+    the sum over the rest reported an unmeasurable seed as a measured zero,
+    and those zeros then entered the medians.  An arm with no facility at all
+    is a different case: its provider capital is measured, and it is zero.
+    """
+    price = np.asarray(sim.logger.fair_price_series, dtype=float)
+    opening = lvr = fees = 0.0
+    for pool in sim.amm_pools.values():
+        row = components(pool, price, shock, window)
+        if row is None:
+            return None
+        loss_i, fees_i, opening_i = row
+        lvr += loss_i
+        fees += fees_i
+        opening += opening_i
+    return float(opening), float(lvr), float(fees)
+
+
+def sponsor_window(sim, shock: int,
+                   window: tuple[int, int] = CRISIS) -> tuple[float, float, float]:
+    total = rate = rebate = 0.0
+    for population in getattr(sim, 'lp_providers', []) or []:
+        history = getattr(population, 'history', {})
+        series = list(history.get('subsidy', []))
+        lo, hi = _window_bounds(shock, window, len(series))
+        total += sum(float(value) for value in series[lo:hi]
+                     if math.isfinite(float(value)))
+        rate_series = list(history.get('rate_subsidy', []))
+        r_lo, r_hi = _window_bounds(shock, window, len(rate_series))
+        rate += sum(float(value) for value in rate_series[r_lo:r_hi]
+                    if math.isfinite(float(value)))
+        rebate_series = list(history.get('loss_rebate', []))
+        b_lo, b_hi = _window_bounds(shock, window, len(rebate_series))
+        rebate += sum(float(value) for value in rebate_series[b_lo:b_hi]
+                      if math.isfinite(float(value)))
+    return total, rate, rebate
+
+
+def withdrawal_window(sim, shock: int,
+                      window: tuple[int, int] = CRISIS) -> float:
+    series = list(sim.logger.mm_channel_shares.get('endogenous', []))
+    lo, hi = _window_bounds(shock, window, len(series))
+    finite = [float(value) for value in series[lo:hi]
+              if math.isfinite(float(value))]
+    return sum(finite) / len(finite) if finite else 0.0
+
+
+def arm_window(sim, shock: int,
+               window: tuple[int, int] = CRISIS) -> ArmWindow:
+    notional, cost, buckets = execution_window(sim, shock, window)
+    customer_amm, arbitrage, arbitrage_share = execution_composition_window(
+        sim, shock, window
+    )
+    lp = lp_window(sim, shock, window)
+    opening, lvr, fees = lp if lp is not None else (None, None, None)
+    sponsor, rate, rebate = sponsor_window(sim, shock, window)
+    return ArmWindow(
+        executed_notional=notional,
+        taker_execution_cost=cost,
+        lp_opening_capital=opening,
+        lp_lvr=lvr,
+        lp_fees=fees,
+        sponsor_transfer=sponsor,
+        dealer_withdrawal_mean=withdrawal_window(sim, shock, window),
+        sponsor_rate_transfer=rate,
+        sponsor_loss_rebate=rebate,
+        execution_buckets=buckets,
+        amm_customer_volume_base=customer_amm,
+        arbitrage_volume_base=arbitrage,
+        arbitrage_share_of_amm_execution=arbitrage_share,
+    )
+
+
+def run(seed: int, enable_amm: bool, lp_model: str = 'endogenous',
+        subsidy_rate: float = 0.0, loss_rebate_fraction: float = 0.0,
+        response_scale: Optional[float] = None):
+    argv = ['--preset', PRESET, '--seed', str(seed), '--n-iter', str(N_ITER),
+            '--silent', '--amm-lp-model', lp_model,
+            '--amm-lp-subsidy-rate', repr(float(subsidy_rate)),
+            '--amm-lp-loss-rebate', repr(float(loss_rebate_fraction))]
+    if response_scale is not None:
+        argv.extend(['--amm-lp-response-scale', repr(float(response_scale))])
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    _apply_preset_defaults(parser, args)
+    args.venue_choice_rule = _resolve_main_routing(args, argv)
+    _auto_stress_around_shock(args)
+    args.enable_amm = 1 if enable_amm else 0
+    if not enable_amm:
+        args.amm_share_pct = 0.0
+    args.clob_amm_interaction = 'competition' if enable_amm else 'none'
+    _seed_all(seed)
+    sim = build_sim(args)
+    sim.simulate(args.n_iter, silent=True)
+    return sim, int(args.shock_iter)
+
+
+def measure(seed: int, annual_capital_rate: float = 0.029,
+            lp_model: str = 'endogenous', subsidy_rate: float = 0.0,
+            loss_rebate_fraction: float = 0.0,
+            response_scale: Optional[float] = None) -> dict:
+    without, shock0 = run(seed, False, lp_model, subsidy_rate,
+                          loss_rebate_fraction, response_scale)
+    with_amm, shock1 = run(seed, True, lp_model, subsidy_rate,
+                           loss_rebate_fraction, response_scale)
+    off = arm_window(without, shock0)
+    on = arm_window(with_amm, shock1)
+    result = account_pair(on, off, annual_capital_rate=annual_capital_rate,
+                          window_seconds=float(CRISIS[1] - CRISIS[0]))
+    return {'seed': int(seed), 'with_amm': asdict(on),
+            'without_amm': asdict(off), 'accounting': result}
+
+
+def aggregate(rows: Iterable[dict], bootstrap_draws: int = 5000,
+              bootstrap_seed: int = 0) -> dict:
+    rows = list(rows)
+    # A seed whose provider window could not be measured has no identity to
+    # check, so it is counted apart rather than as a failure of the identity.
+    transfer_failures = sum(
+        row.get('accounting', {}).get('subsidy_transfer_cancels') is False
+        for row in rows
+    )
+    unmeasurable_lp_windows = sum(
+        not bool(row.get('accounting', {}).get('lp_window_measurable', True))
+        for row in rows
+    )
+    medians = {}
+    intervals = {}
+    finite_counts = {}
+    rng = np.random.default_rng(int(bootstrap_seed))
+    for key in SUMMARY_METRICS:
+        values = []
+        for row in rows:
+            raw = row['accounting'].get(key)
+            try:
+                value = float(raw)
+            except (TypeError, ValueError):
+                continue
+            if math.isfinite(value):
+                values.append(value)
+        values.sort()
+        finite_counts[key] = len(values)
+        medians[key] = float(np.median(values)) if values else None
+        if values and bootstrap_draws > 0:
+            array = np.asarray(values, dtype=float)
+            draws = rng.choice(array, size=(int(bootstrap_draws), array.size),
+                               replace=True)
+            boot = np.median(draws, axis=1)
+            intervals[key] = [float(np.quantile(boot, 0.025)),
+                              float(np.quantile(boot, 0.975))]
+        else:
+            intervals[key] = None
+    return {
+        'n_seeds': len(rows),
+        'medians': medians,
+        'finite_counts': finite_counts,
+        'bootstrap_95_intervals_on_median': intervals,
+        'bootstrap_draws': int(bootstrap_draws),
+        'bootstrap_seed': int(bootstrap_seed),
+        'subsidy_transfer_cancellation_failures': transfer_failures,
+        'all_subsidy_transfers_cancel': bool(rows and transfer_failures == 0),
+        # Reported rather than absorbed: a median over fewer seeds than the
+        # run carries is a different claim from a median over all of them.
+        'unmeasurable_lp_windows': unmeasurable_lp_windows,
+        'total_welfare_identified': False,
+        'estimand_scope': dict(ESTIMAND_SCOPE),
+        'interpretation': (
+            'Partial-equilibrium execution-cost benefit on matched routed-customer '
+            'fills and LP/fiscal incidence. Arbitrage execution is telemetry only; '
+            'this is not total social welfare.'
+        ),
+    }
+
+
+_WELFARE_SIGNATURE = None
+_WELFARE_REPORT_SIGNATURE = None
+
+
+def welfare_measurement_signature():
+    """Digest of paired seed simulation and row-level accounting only."""
+    global _WELFARE_SIGNATURE
+    if _WELFARE_SIGNATURE is None:
+        _WELFARE_SIGNATURE = measurement_signature(
+            'welfare_accounting',
+            model_signature(ROOT),
+            functions=(
+                _common_reference_cost_bps,
+                execution_window,
+                execution_composition_window,
+                lp_window,
+                sponsor_window,
+                withdrawal_window,
+                arm_window,
+                account_pair,
+                measure,
+            ),
+            constants=(PRESET, N_ITER, CRISIS, ABSOLUTE_SIZE_BOUNDS,
+                       SECONDS_PER_YEAR, tuple(sorted(ESTIMAND_SCOPE.items()))),
+        )
+    return _WELFARE_SIGNATURE
+
+
+def welfare_report_signature():
+    """Digest of the summary applied to current-signature welfare rows."""
+    global _WELFARE_REPORT_SIGNATURE
+    if _WELFARE_REPORT_SIGNATURE is None:
+        _WELFARE_REPORT_SIGNATURE = measurement_signature(
+            'welfare_accounting_report',
+            welfare_measurement_signature(),
+            functions=(aggregate,),
+            constants=('welfare-partial-equilibrium-summary-v1',),
+        )
+    return _WELFARE_REPORT_SIGNATURE
+
+
+def self_check() -> bool:
+    on = ArmWindow(1000.0, 4.0, 2000.0, 7.0, 5.0, 3.0, 0.2,
+                   sponsor_rate_transfer=1.0, sponsor_loss_rebate=2.0)
+    off = ArmWindow(1000.0, 9.0, dealer_withdrawal_mean=0.1)
+    a = account_pair(on, off, annual_capital_rate=0.0, window_seconds=100.0)
+    b = account_pair(ArmWindow(**{**asdict(on), 'sponsor_transfer': 300.0}), off,
+                     annual_capital_rate=0.0, window_seconds=100.0)
+    return bool(
+        abs(a['matched_notional_user_benefit'] - 5.0) < 1e-12
+        and abs(a['lp_operating_result'] + 2.0) < 1e-12
+        and a['subsidy_transfer_cancels']
+        and b['subsidy_transfer_cancels']
+        and abs(a['user_side_net_benefit'] - b['user_side_net_benefit']) < 1e-12
+        and not a['total_welfare_identified']
+    )
+
+
+def _measure_job(job):
+    return measure(*job)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--seed-start', type=int, default=42)
+    parser.add_argument('--seeds', type=int, default=8)
+    parser.add_argument('--capital-rate', type=float, default=0.029)
+    parser.add_argument('--lp-model', choices=['rule', 'endogenous'],
+                        default='endogenous')
+    parser.add_argument('--subsidy-rate', type=float, default=0.0,
+                        help='quote transfer per tick as a fraction of pool NAV')
+    parser.add_argument('--loss-rebate', type=float, default=0.0,
+                        help='fraction of a negative LP operating payoff reimbursed')
+    parser.add_argument('--response-scale', type=float, default=None,
+                        help='override the calibrated LP return-response scale')
+    parser.add_argument('--output', default='output/resilience/welfare_accounting.json')
+    parser.add_argument('--workers', type=int, default=1)
+    parser.add_argument('--bootstrap-draws', type=int, default=5000)
+    parser.add_argument('--bootstrap-seed', type=int, default=0)
+    parser.add_argument('--self-check', action='store_true')
+    args = parser.parse_args()
+    if args.self_check:
+        ok = self_check()
+        print('welfare accounting self-check:', 'pass' if ok else 'fail')
+        return 0 if ok else 1
+    jobs = [(seed, args.capital_rate, args.lp_model, args.subsidy_rate,
+             args.loss_rebate, args.response_scale)
+            for seed in range(args.seed_start, args.seed_start + args.seeds)]
+    if args.workers > 1:
+        with ProcessPool(args.workers) as pool:
+            rows = list(pool.imap(_measure_job, jobs))
+    else:
+        rows = [_measure_job(job) for job in jobs]
+    payload = {
+        'model_signature': model_signature(ROOT),
+        'measurement_signature': welfare_measurement_signature(),
+        'report_signature': welfare_report_signature(),
+        'configuration': {**vars(args),
+                          'absolute_size_bounds': list(ABSOLUTE_SIZE_BOUNDS),
+                          'execution_cost_benchmark': 'pretrade_clob_mid',
+                          'execution_price_basis': 'actual_all_in_fill',
+                          'estimand_scope': dict(ESTIMAND_SCOPE)},
+        'summary': aggregate(rows, args.bootstrap_draws, args.bootstrap_seed),
+        'rows': rows,
+    }
+    os.makedirs(os.path.dirname(args.output) or '.', exist_ok=True)
+    with open(args.output, 'w', encoding='utf-8') as handle:
+        json.dump(payload, handle, indent=2, allow_nan=False)
+        handle.write('\n')
+    print(json.dumps(payload['summary'], indent=2))
+    return 0
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

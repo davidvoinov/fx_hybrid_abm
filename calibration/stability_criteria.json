@@ -1,0 +1,43 @@
+{
+  "description": "Stability criteria for the composition sensitivity sweep. A simulation run is considered 'stable' (i.e. non-degenerate, suitable for AMM-effect estimation) iff ALL listed criteria are satisfied. This is NOT a calibration target -- it is the filter that excludes pathological agent configurations from the main analysis.",
+  "version": "1.0",
+  "scenarios_evaluated": ["default"],
+  "criteria": [
+    {
+      "name": "spread_finite",
+      "description": "Average quoted spread is finite and below 50 bps (real EUR/USD spot rarely exceeds this even under stress).",
+      "metric": "avg_clob_spread_bps",
+      "max": 50.0,
+      "min": 0.1
+    },
+    {
+      "name": "depth_nontrivial",
+      "description": "Average displayed CLOB depth is non-trivial. Below 50 base units the market has effectively no orderbook.",
+      "metric": "avg_clob_depth",
+      "min": 50.0
+    },
+    {
+      "name": "volatility_bounded",
+      "description": "Realized volatility is bounded. Above 100x baseline indicates explosive dynamics.",
+      "metric": "avg_realized_volatility",
+      "max": 0.05
+    },
+    {
+      "name": "systemic_liquidity_alive",
+      "description": "Systemic liquidity stays above 0.3 in calm state -- below this means a degenerate liquidity index.",
+      "metric": "avg_systemic_liquidity",
+      "min": 0.30
+    },
+    {
+      "name": "trades_executed",
+      "description": "At least a minimum number of trades execute. Less means no meaningful market activity.",
+      "metric": "n_trades",
+      "min": 100
+    }
+  ],
+  "scenarios_for_amm_effect": [
+    "default",
+    "dealer_liquidity_crisis",
+    "funding_liquidity_shock"
+  ]
+}

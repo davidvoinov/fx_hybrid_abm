@@ -1,0 +1,1 @@
+from AgentBasedModel.environment.processes import MarketEnvironment

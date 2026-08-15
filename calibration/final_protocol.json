@@ -1,0 +1,165 @@
+{
+  "protocol_version": "book-lp-final-v2",
+  "frozen_at": "2026-08-13",
+  "scope": "Computational closure of the EBS book calibration and endogenous AMM-LP block. Manuscript prose is outside this protocol.",
+  "revision_history": [
+    {
+      "version": "book-lp-final-v1",
+      "development_output": "output/final/book_development_300.json",
+      "result": "failed_development_gate",
+      "reason": "Calm endogenous dealer activation was 19/300 and its Wilson upper 95% bound exceeded 5%; all literature and book-lifecycle gates passed.",
+      "holdout_opened": false
+    },
+    {
+      "version": "book-lp-final-v2",
+      "result": "frozen_after_development_diagnosis",
+      "changes": [
+        "AMM support remains a quoting diagnostic but is no longer a calm-market additive dealer-exit intercept.",
+        "Full endogenous dealer withdrawal requires two consecutive above-threshold observations; the first observation immediately makes quotes defensive.",
+        "All bank dealers receive exchangeable equal-price queue priority from a dedicated paired-invariant scheduler stream."
+      ],
+      "thresholds_changed": false,
+      "holdout_opened_at_freeze": false
+    }
+  ],
+  "phases": {
+    "development": {
+      "seed_start": 42,
+      "seed_count": 300,
+      "status": "permanently_seen_development_panel",
+      "output": "output/final/book_development_v2_300.json"
+    },
+    "holdout": {
+      "seed_start": 10042,
+      "seed_count": 300,
+      "status": "untouched_single_use_holdout",
+      "output": "output/final/book_holdout_v2_300.json"
+    }
+  },
+  "thresholds": {
+    "minimum_ebs_seed_pass_rate": 0.9,
+    "maximum_calm_activation_rate": 0.05,
+    "minimum_crisis_activation_rate": 0.75,
+    "minimum_activation_rate_gap": 0.5
+  },
+  "book_integrity_thresholds": {
+    "minimum_two_sided_book_rate": 0.999,
+    "maximum_dealer_completed_lifetime_atom_share": 0.25,
+    "maximum_nonbank_completed_lifetime_atom_share": 0.35,
+    "maximum_uncategorized_lifecycle_share_per_class": 0.0,
+    "maximum_same_tick_scheduled_end_share_per_class": 0.25,
+    "minimum_completed_lifecycle_events_per_seed_per_class": 100
+  },
+  "lp_design": {
+    "scenario": "dealer_liquidity_crisis",
+    "final_inference_panel": {
+      "seed_start": 10042,
+      "seed_count": 300,
+      "n_iter": 1000,
+      "status": "untouched_single_use_holdout_shared_with_book_validation"
+    },
+    "development_robustness_panel": {
+      "seed_start": 42,
+      "seed_count": 60,
+      "n_iter": 1000,
+      "status": "seen_mechanism_and_sensitivity_panel"
+    },
+    "crisis_window_offsets": [0, 100],
+    "factorial": {
+      "exit_entry_patience": [145, 290, 580],
+      "ewma_alpha": [0.01, 0.02, 0.05],
+      "design": "complete_3_by_3_grid_plus_disclosed_oat_controls",
+      "expected_specifications": 15
+    },
+    "routing_sensitivity": {
+      "design": "one_parameter_at_a_time_around_primary_baseline",
+      "expected_specifications": 8,
+      "routing_cost_scale_bps": [2.0, 4.0, 8.0],
+      "routing_prior_mix_cap": [0.0, 0.18],
+      "cost_noise_std": [0.0, 1.5, 3.0],
+      "hfmm_reserve_factor": [0.5, 1.0, 2.0]
+    },
+    "entry_identification_arm": {
+      "seed_start": 42,
+      "seed_count": 60,
+      "n_iter": 1000,
+      "subsidy_rate_per_tick": 1e-05,
+      "purpose": "mechanism_activation_stress_not_policy_recommendation"
+    },
+    "loss_rebate_identification_arm": {
+      "seed_start": 42,
+      "seed_count": 60,
+      "n_iter": 1000,
+      "subsidy_rate_per_tick": 0.0,
+      "loss_rebate_fraction": 1.0,
+      "comparison": "paired_against_development_robustness_baseline",
+      "acceptance_rule": "weakly_fewer_gross_exits_and_weakly_more_crisis_survival_in_every_pool_with_at_least_one_strict_response",
+      "purpose": "isolated_mechanism_identification_not_policy_recommendation"
+    },
+    "pnl_panel": {
+      "seed_start": 10042,
+      "seed_count": 300,
+      "n_iter": 1000,
+      "lp_model": "endogenous",
+      "fee_bps": ["calibrated", 1.0, 2.5, 5.0, 10.0, 20.0],
+      "bootstrap_draws": 20000,
+      "bootstrap_seed": 0
+    },
+    "welfare_incidence_panels": {
+      "seed_start": 10042,
+      "seed_count": 300,
+      "n_iter": 1000,
+      "bootstrap_draws": 20000,
+      "bootstrap_seed": 0,
+      "lp_model": "endogenous",
+      "annual_capital_rate": 0.029,
+      "arms": [
+        {"name": "private_primary", "subsidy_rate": 0.0, "loss_rebate": 0.0},
+        {"name": "full_loss_guarantee_upper_bound", "subsidy_rate": 1.3319e-09, "loss_rebate": 1.0}
+      ]
+    },
+    "mechanism_controls": [
+      "zero_support_private_sustainability",
+      "posted_rate_entry_activation",
+      "loss_rebate_exit_response",
+      "entry_margin_separation"
+    ],
+    "estimands": [
+      "facility_open_immediately_before_shock",
+      "facility_open_through_crisis",
+      "gross_provider_exits",
+      "gross_new_entries",
+      "gross_reentries",
+      "deployed_capital_share",
+      "lp_operating_return",
+      "routed_customer_amm_volume_share",
+      "amm_arbitrage_volume_share",
+      "matched_customer_execution_benefit",
+      "sponsor_fiscal_result"
+    ],
+    "claim_limits": {
+      "behavioural_parameters_externally_calibrated": false,
+      "total_welfare_identified": false,
+      "zero_entry_by_horizon_interpreted_as": "right_censored_nonactivation_or_unprofitable_entry_condition",
+      "customer_routing_and_arbitrage_flow_are_separate_estimands": true
+    }
+  },
+  "lp_frozen_signatures": {
+    "survival_measurement_signature": "94b60e36107a5119",
+    "survival_report_signature": "7b6e342955154b86",
+    "sensitivity_report_signature": "40b32dff55f9af21",
+    "routing_measurement_signature": "6b4a7912057525f4",
+    "routing_report_signature": "5b4b3661bbb03fdb",
+    "routing_protocol_signature": "1cbc624cf38f5faa",
+    "pnl_measurement_signature": "fde07c0c2a4278a2",
+    "pnl_report_signature": "fddcdefa3bf8aaa5",
+    "welfare_measurement_signature": "8b18a0d2518a3390",
+    "lp_acceptance_code_sha256": "27fca6e3e8f8c6f298d00db407b762148f906d6067d75c11f780858934435166"
+  },
+  "frozen_hashes": {
+    "target_matrix_sha256": "fb5347fe19fb884e05ba0da5c9829fd2f8a125bf388c2f2f9e67ab695d36441f",
+    "primary_runtime_sha256": "d241af821b54cf48a8e833c290ac4990ca0ec9f2f89e5dac70b2eca27275079c",
+    "simulation_model_signature": "43f2546550ce44ec",
+    "book_acceptance_signature": "4cfd5a5324c09b69"
+  }
+}
