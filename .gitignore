@@ -15,6 +15,25 @@ env/
 # a seed, so results are regenerated rather than versioned.
 output/
 
+# Third-party source material kept locally for reference. These are other
+# people's copyrighted papers and are not ours to redistribute.
+literature/
+
+# Confidential peer review correspondence.
+FRL/
+
+# LaTeX build products. The manuscript source is versioned, its output is not.
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.synctex.gz
+*.abs
+*.toc
+
 # Editor and OS
 .vscode/
 .idea/
