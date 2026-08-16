@@ -304,6 +304,74 @@ def half_life_steps_pct(dev_series: List[float], shock_iter: int,
     return float(end - shock_iter)
 
 
+def decay_rate_from_peak(dev_series: Sequence[float], shock_iter: int,
+                         horizon: Optional[int] = None,
+                         floor_fraction: float = 0.05,
+                         min_points: int = 8) -> dict:
+    """Exponential decay rate of the post-shock deviation, fitted from its peak.
+
+    A threshold crossing answers "when did it get back under a line", which
+    mixes how far the market was displaced with how quickly it recovered: the
+    same line is easier to reach from a smaller peak, and a single crossing is
+    one noisy observation of a whole path. This fits the decay of the entire
+    path instead, by least squares on the log deviation from the peak onward.
+
+    The rate is invariant to a rescaling of the deviation, so it measures the
+    speed of the return and not the size of the displacement. The displacement
+    is returned beside it, as the quantity the rate is conditional on, rather
+    than being folded into it.
+    """
+    values = [float(v) for v in dev_series]
+    start = max(0, int(shock_iter))
+    end = len(values) if horizon is None else min(len(values), start + int(horizon))
+    window = [abs(v) for v in values[start:end]]
+    empty = {'decay_rate_per_step': float('nan'),
+             'decay_half_life_steps': float('nan'),
+             'decay_initial_dislocation_pct': float('nan'),
+             'decay_r_squared': float('nan'),
+             'decay_n_points': 0}
+    if len(window) < min_points:
+        return empty
+
+    peak_at = max(range(len(window)), key=lambda i: window[i])
+    peak = window[peak_at]
+    if not (peak > 0.0) or peak != peak:
+        return empty
+
+    floor = peak * max(0.0, float(floor_fraction))
+    xs, ys = [], []
+    for offset, value in enumerate(window[peak_at:]):
+        if value <= floor or value != value:
+            # The path has reached the noise floor; fitting beyond it would
+            # measure the noise rather than the decay.
+            break
+        xs.append(float(offset))
+        ys.append(math.log(value))
+    if len(xs) < min_points:
+        return empty
+
+    n = float(len(xs))
+    mean_x = sum(xs) / n
+    mean_y = sum(ys) / n
+    sxx = sum((x - mean_x) ** 2 for x in xs)
+    if sxx <= 0.0:
+        return empty
+    sxy = sum((x - mean_x) * (y - mean_y) for x, y in zip(xs, ys))
+    slope = sxy / sxx
+    intercept = mean_y - slope * mean_x
+    ss_tot = sum((y - mean_y) ** 2 for y in ys)
+    ss_res = sum((y - (intercept + slope * x)) ** 2 for x, y in zip(xs, ys))
+    r_squared = 1.0 - ss_res / ss_tot if ss_tot > 0.0 else float('nan')
+
+    rate = -slope
+    half_life = math.log(2.0) / rate if rate > 0.0 else float('inf')
+    return {'decay_rate_per_step': float(rate),
+            'decay_half_life_steps': float(half_life),
+            'decay_initial_dislocation_pct': float(peak),
+            'decay_r_squared': float(r_squared),
+            'decay_n_points': int(len(xs))}
+
+
 def trough_change_pct(dev_series: List[float], shock_iter: int,
                       horizon: Optional[int] = None) -> float:
     """Most negative post-shock deviation."""

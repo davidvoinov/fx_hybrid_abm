@@ -45,7 +45,7 @@ def _dealer(seed=11, median=290):
 
 def test_geometric_clock_uses_the_configured_median_without_a_point_mass():
     # Use one stream for the distribution; constructing one stream per draw
-    # would deliberately repeat the first variate.
+    # would repeat the first variate on purpose.
     rng_short = random.Random(17)
     short = [_draw_geometric_lifetime(rng_short, 3) for _ in range(20_000)]
     rng_dealer = random.Random(23)
@@ -202,7 +202,7 @@ def test_dealer_withdrawal_requires_persistence_and_resets_after_a_drop():
 
 def test_dealer_scheduler_is_seeded_exchangeable_and_deduplicated():
     dealers = [_dealer(seed=100 + index)[2] for index in range(5)]
-    # Include the compatibility handle in book_agents deliberately: the
+    # Include the compatibility handle in book_agents on purpose. The
     # scheduler must still call it only once. Changing which dealer occupies
     # that handle must not create a deterministic first-call privilege.
     def make_sim():
@@ -292,7 +292,7 @@ def _minimal_paired_fx_sim(**overrides):
 def _customer_intent_and_route_path(trader, periods=1000):
     """Draw demand and route it without mutating balances or venue reserves.
 
-    Quote execution is deliberately omitted: the invariant under test is that
+    Quote execution is omitted by design, since the invariant under test is that
     arrival, side and requested size are common innovations while routing is
     allowed to respond to the treatment or OAT parameter.
     """

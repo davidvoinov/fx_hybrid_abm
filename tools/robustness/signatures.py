@@ -235,9 +235,17 @@ def transitive_source_digest(functions=(), root=ROOT, excluded_paths=()):
             raise ValueError(
                 f'signature root {value!r} has no source below {root}'
             )
+        # The path below the project root and the qualified name identify the
+        # function. ``__module__`` is not part of the key, because it is not a
+        # property of the code: a module run as ``python -m pkg.mod`` reports
+        # ``__main__`` where the same file imported as ``pkg.mod`` reports its
+        # dotted name, so including it made one unchanged source tree produce
+        # two different signatures depending on how the process was started.
+        # A protocol frozen from an import then refused the identical code run
+        # from the command line, which is the opposite of what a code signature
+        # is for.
         key = (
             os.path.relpath(path, root),
-            getattr(value, '__module__', ''),
             getattr(value, '__qualname__', getattr(value, '__name__', '')),
         )
         # Simulation files are already represented by ``model_digest``. Do

@@ -210,6 +210,45 @@ def _nearest_trade_size(grid: list[float], target_q: float) -> float:
     return min(grid, key=lambda candidate: abs(float(candidate) - float(target_q)))
 
 
+
+def _price_discovery_half_life(logger, shock_iter) -> float:
+    """Periods for the book's distance from the latent value to halve.
+
+    A market discovers a price; it is not handed one. This measures whether
+    the traded mid actually converges on the latent value after it moves,
+    and it exists because nothing else in the target set does. A book that
+    stood two hundred and eighty basis points away from the fundamental for
+    a hundred periods passed every other acceptance target, which made the
+    whole set blind to the one thing a price formation model has to get
+    right.
+    """
+    if shock_iter is None:
+        return float('nan')
+    mid = list(getattr(logger, 'clob_mid_series', []) or [])
+    fair = list(getattr(logger, 'fair_price_series', []) or [])
+    n = min(len(mid), len(fair))
+    start = int(shock_iter)
+    if n <= start + 1:
+        return float('nan')
+
+    def gap(i):
+        m, f = mid[i], fair[i]
+        if m is None or f is None or not (m == m) or not (f == f) or f <= 0:
+            return float('nan')
+        return abs(m - f) / f * 1e4
+
+    opening = gap(start)
+    if not (opening == opening) or opening <= 0.0:
+        return float('nan')
+    for i in range(start, n):
+        g = gap(i)
+        if g == g and g <= opening / 2.0:
+            return float(i - start)
+    # Never halved inside the run; report the window rather than a silent nan
+    # so that the failure is visible as a number.
+    return float(n - start)
+
+
 class CalibrationFitter:
     """Scaffold for evaluating one simulation run against literature targets."""
 
@@ -259,10 +298,9 @@ class CalibrationFitter:
     def _funding_liquidity_propagation(logger) -> float:
         """Magnitude of funding to spread comovement. Diagnostic only.
 
-        No published statistic measures this: the field estimates are monthly
-        and observational, this is a tick frequency correlation inside a
-        scenario that shocks funding deliberately. The number is reported, the
-        direction is what gets gated.
+        No published statistic measures this. The field estimates are monthly
+        and observational, while this is a tick frequency correlation inside a
+        scenario built to shock funding, so only the number is reported.
         """
         return abs(float(logger.series_correlation(logger.c_series, logger.clob_qspr)))
 
@@ -271,9 +309,18 @@ class CalibrationFitter:
         """Direction of the funding channel: +1 if tighter funding widens spreads.
 
         Banti and Phylaktis show lower repo availability raising FX transaction
-        costs; Mancini, Ranaldo and Wrampelmeyer show a higher TED spread and a
-        higher VIX going with lower FX liquidity. The sign is what the
-        literature establishes, so the sign is what the model is held to.
+        costs, and Mancini, Ranaldo and Wrampelmeyer show a higher TED spread
+        and a higher VIX going with lower FX liquidity, so the direction is well
+        established in the field.
+
+        This was a gate until its power was measured. It is not one now, because
+        the model cannot fail it. At mm_alpha2 of zero the measured correlation
+        is +0.80, and at -200, which is ten times the calibrated magnitude with
+        the opposite sign, it is +0.18 and still passing. Funding stress in this
+        scenario arrives alongside higher volatility and a cancellation wave,
+        and those widen the spread by themselves, so the sign of this
+        correlation says nothing about the funding coefficient. Reported as a
+        diagnostic.
         """
         corr = float(logger.series_correlation(logger.c_series, logger.clob_qspr))
         if not math.isfinite(corr) or abs(corr) < 1e-9:
@@ -325,7 +372,7 @@ class CalibrationFitter:
             if callable(observations):
                 rows.extend(observations(include_live=True))
                 continue
-            # A legacy object remains measurable but deliberately fails the
+            # A legacy object remains measurable but is meant to fail the
             # reason-coverage gate rather than masquerading as full telemetry.
             rows.extend({
                 'lifetime': float(age),
@@ -470,6 +517,9 @@ class CalibrationFitter:
             )
 
         return {
+            'price_discovery_half_life_ticks': _price_discovery_half_life(
+                logger, shock_iter
+            ),
             'dealer_forced_pause_share': dealer_forced_pause_share,
             'dealer_forced_pause_peak_share': dealer_forced_pause_peak_share,
             'dealer_withdrawal_peak_share': dealer_withdrawal_peak_share,

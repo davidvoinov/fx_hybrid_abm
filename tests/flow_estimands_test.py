@@ -5,7 +5,7 @@ from AgentBasedModel.agents.agents import AMMArbitrageur, Trader
 from AgentBasedModel.metrics.logger import MetricsLogger
 from AgentBasedModel.venues.amm import CPMMPool
 from calibration.fitter import CalibrationFitter
-from tests.stat_tests import _phase_customer_flow_estimands
+from tools.stat_study import _phase_customer_flow_estimands
 from tools.robustness.migration_table import _phase_estimands
 
 

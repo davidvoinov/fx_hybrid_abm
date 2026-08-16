@@ -152,7 +152,7 @@ def test_welfare_excludes_arbitrage_from_customer_benefit_but_reports_its_flow()
             'all_in_exec_price': 101.0, 'common_reference_price': 100.0,
         },
         {
-            # Deliberately contaminate the customer log: the source guard must
+            # Contaminate the customer log on purpose. The source guard must
             # keep this much larger arbitrage leg out of the user estimand.
             't': 1, 'execution_source': 'arbitrage',
             'trader_type': 'AMMArbitrageur', 'venue': 'hfmm', 'side': 'buy',

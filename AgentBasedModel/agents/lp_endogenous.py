@@ -106,7 +106,7 @@ class EndogenousLP:
         self._below = 0                    # consecutive periods under the option
         # Entry persistence is measured against the full economic hurdle, not
         # merely against the outside option.  The EWMA is already a smoothed
-        # return, so this counter is deliberately visible in telemetry: a run
+        # return, so this counter is kept visible in telemetry on purpose. A run
         # that ends before it reaches ``entry_patience`` is right-censored, not
         # evidence that the entry mechanism is absent.
         self._above = 0

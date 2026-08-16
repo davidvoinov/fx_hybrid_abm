@@ -53,7 +53,7 @@
       "confidence": "low",
       "match_type": "price_grid_diagnostic",
       "source_excerpt": "Top of Book spreads witnessed a significant 30% reduction, Average Top of Book stands at 0.63 pips throughout the day. ... Over 20% of EUR/USD volume is now being traded on quarter and three-quarter pip increments.",
-      "ingestion_note": "REVISED 2026-08-10 after source and statistic audit. CME reports an average top-of-book spread, not a median. The model median sits on one tick, the minimum representable spread, so it is retained as a transparent price-grid diagnostic but carries no objective weight and cannot determine acceptance. The gate is now the mean observable below, matching the statistic actually published. Lallouache and Abergel document the March 2011 reduction from 1e-4 to 1e-5 and spread modes of nine and thirteen decimal ticks; they do not support the earlier claim that EBS adopted half-pip pricing in September 2012. The model grid of half a basis point is a modelling choice, not a quoted venue rule. CME reports that more than a fifth of EUR/USD volume traded on quarter- and three-quarter-pip increments in 2024, so the model grid remains coarser than an important part of the live venue."
+      "ingestion_note": "REVISED 2026-08-15. This median was formerly identical to one price tick at every grid tested, from two basis points down to nine hundredths, and the book sat on exactly one tick in about nine periods in ten, so it measured the grid and not the market. It is no longer degenerate: the median now stands at nine to thirteen ticks. The band is kept as a diagnostic with low confidence because no source publishes a median top-of-book spread for this venue."
     },
     {
       "observable": "near_touch_depth",
@@ -132,7 +132,7 @@
       "confidence": "low",
       "match_type": "derived_diagnostic",
       "source_excerpt": "Table D.1 documents non-zero EUR/USD order-flow serial dependence in high trading density windows, motivating short same-sign run clustering rather than iid flow signs.",
-      "ingestion_note": "Diagnostic only: this companion metric checks short parent-order clustering so the calibration does not rely exclusively on lag-1 autocorrelation. The band is deliberately modest and rules out both iid signs and unrealistically long toxic meta-order runs."
+      "ingestion_note": "Diagnostic only: this companion metric checks short parent-order clustering so the calibration does not rely exclusively on lag-1 autocorrelation. The band is a modest one and rules out both iid signs and unrealistically long toxic meta-order runs."
     },
     {
       "observable": "impact_curve",
@@ -202,8 +202,8 @@
       "confidence": "none",
       "match_type": "unidentified_diagnostic",
       "source_excerpt": "Overall, our explanatory variables capture an appreciable fraction of the monthly time series variation in market wide liquidity of around 20%.",
-      "ingestion_note": "REPORTED ONLY. Banti and Phylaktis report regression explanatory power for monthly market-wide FX liquidity, not this contemporaneous correlation inside a deliberately shocked scenario. Neither 0.4 nor sqrt(0.20) is a valid target for this observable, so the numerical anchor and tolerance have been removed. The separately defined sign target retains the restriction the literature actually supports.",
-      "known_limitation": "The model's funding-spread comovement is high because the scenario deliberately moves funding costs. Its magnitude is a model diagnostic, not an empirical match."
+      "ingestion_note": "REPORTED ONLY. Banti and Phylaktis report regression explanatory power for monthly market-wide FX liquidity, not this contemporaneous correlation inside a shocked scenario. Neither 0.4 nor sqrt(0.20) is a valid target for this observable, so the numerical anchor and tolerance have been removed. The separately defined sign target retains the restriction the literature actually supports.",
+      "known_limitation": "The model's funding-spread comovement is high because the scenario moves funding costs by design. Its magnitude is a model diagnostic, not an empirical match."
     },
     {
       "observable": "funding_spread_comovement_sign",
@@ -224,15 +224,15 @@
       "accepted_error_band": {
         "qualitative": "sign must match the published direction"
       },
-      "objective_weight": 1.0,
-      "gating": true,
+      "objective_weight": 0.0,
+      "gating": false,
       "block": "funding",
       "units": "sign",
       "target_value": 1.0,
-      "confidence": "high",
+      "confidence": "none",
       "match_type": "direct",
       "source_excerpt": "Our results show that (i) funding liquidity constraints measured by the availability of outstanding repos reduce FX market liquidity, and their impact is stronger when they are associated with an increase in the costs of funding and a shortening of their maturity",
-      "ingestion_note": "The magnitude of funding transmission has no comparable published statistic at this frequency, but its direction does, and it is established in more than one independent study: Banti and Phylaktis find that tighter repo availability raises FX transaction costs, and Mancini, Ranaldo and Wrampelmeyer find that a higher TED spread and a higher VIX go with lower FX liquidity. Gating the sign keeps a falsifiable restriction on the channel without asserting a number the literature does not supply. A model in which funding stress narrowed spreads would fail here."
+      "ingestion_note": "Demoted from a gate to a diagnostic on 16.08.2026 after its power was measured rather than assumed. The direction is established in the literature, but this model cannot fail the restriction. Setting mm_alpha2 to zero leaves the measured correlation at +0.80, and setting it to -200, ten times the calibrated magnitude with the opposite sign, still leaves it at +0.18 and passing. Funding stress in this scenario arrives together with higher volatility and a cancellation wave, and those channels widen the spread on their own, so the sign of the correlation carries no information about the funding coefficient. A gate that cannot fail does not belong in an acceptance set whose purpose is falsifiability. The magnitude remains reported as funding_liquidity_stress_propagation."
     },
     {
       "observable": "amm_volume_share",
@@ -387,7 +387,7 @@
       "confidence": "medium",
       "match_type": "derived_from_two_primary_statistics",
       "source_excerpt": "Banks constitute 62% of EBS Market volume; bank make:take is 60:40 and non-bank make:take is 37:63.",
-      "ingestion_note": "This gate is deliberately on executed maker volume, not touch ownership or the share of resting orders. Combining the two source statistics gives an approximate bank share of passive volume of (0.62*0.60)/[(0.62*0.60)+(0.38*0.37)] = 0.726. The stated 0.55-0.85 interval is already the full uncertainty band for the fact that the venue-share and make:take statistics need not cover precisely the same sample; no second tolerance is applied outside it. It rejects both the earlier regime in which fast non-bank firms supplied roughly three quarters of passive executions and a mechanically all-bank book."
+      "ingestion_note": "This gate is on executed maker volume by choice, not touch ownership or the share of resting orders. Combining the two source statistics gives an approximate bank share of passive volume of (0.62*0.60)/[(0.62*0.60)+(0.38*0.37)] = 0.726. The stated 0.55-0.85 interval is already the full uncertainty band for the fact that the venue-share and make:take statistics need not cover precisely the same sample; no second tolerance is applied outside it. It rejects both the earlier regime in which fast non-bank firms supplied roughly three quarters of passive executions and a mechanically all-bank book."
     },
     {
       "observable": "executed_volume_per_second",
@@ -411,15 +411,16 @@
     {
       "observable": "quoted_spread_mean_bps",
       "evaluation_scenario": "baseline_primary",
-      "source": "CME Group, primary FX liquidity on EBS (2024)",
+      "source": "CME Group, FX Traders: Lovers of the Light (2025), EBS Market annual figures",
       "source_urls": [
-        "https://www.cmegroup.com/news/2024/strengthening-fx-primary-liquidity-on-ebs.html"
+        "https://www.cmegroup.com/articles/2025/fx-traders-lovers-of-the-light.html"
       ],
-      "market_scope": "EUR/USD on EBS, average across the trading day",
+      "market_scope": "EUR/USD on EBS Market, annual average across the trading day",
       "statistic": "mean quoted spread, in bps of the reference price",
       "parameter_mapping": [
         "fast_lp_base_spread_bps",
-        "mm_alpha0_base"
+        "mm_stale_touch_ratio",
+        "price_tick"
       ],
       "accepted_error_band": {
         "absolute": 0.3
@@ -428,11 +429,39 @@
       "gating": true,
       "block": "spread",
       "units": "bps",
-      "target_value": 0.57,
+      "target_value": 0.81,
       "confidence": "medium",
       "match_type": "direct_statistic_with_scope_limitation",
-      "source_excerpt": "Average Top of Book stands at 0.63 pips throughout the day.",
-      "ingestion_note": "This is now the spread gate because its statistic matches the CME publication: mean against reported average. At EUR/USD near 1.10, 0.63 pips is about 0.57 basis points. The absolute tolerance of 0.30 bps is deliberately wider than a tight measurement error because the source averages the whole trading day while the model has no intraday session cycle. The median remains reported separately as a price-grid diagnostic."
+      "source_excerpt": "Despite a 64% surge in EUR/USD volatility, average top-of-book spreads on EBS Market rose by a modest 0.15 pip to 0.89 pip from 0.74 pip in 2024.",
+      "ingestion_note": "REVISED 2026-08-15. The previous anchor of 0.63 pips was a measurement taken around the introduction of quarter-pip increments in March 2024, which is the most favourable slice of that year rather than an average of it; the annual figures are 0.74 pips for 2024 and 0.89 for 2025. The 2025 figure is used, converted at a rate near 1.10, giving 0.81 bps. The absolute tolerance of 0.30 bps is wider than measurement error by choice because the venue statistic averages a whole trading day while the model has no intraday session cycle. The mapping has changed with the model: the realised spread is no longer a function of the price grid, so it is now set by the non-bank's base spread and by how tightly the dealer refreshes a quote the price has drifted onto, not by mm_alpha0_base."
+    },
+    {
+      "observable": "price_discovery_half_life_ticks",
+      "evaluation_scenario": "dealer_liquidity_crisis",
+      "source": "Chaboud, Chiquoine, Hjalmarsson and Vega, Rise of the Machines: Algorithmic Trading in the Foreign Exchange Market, Journal of Finance 69(5), 2014; Mancini, Ranaldo and Wrampelmeyer, Journal of Finance 68(5), 2013",
+      "source_urls": [
+        "https://doi.org/10.1111/jofi.12186",
+        "https://doi.org/10.1111/jofi.12053"
+      ],
+      "market_scope": "EUR/USD on EBS, one model period is one second",
+      "statistic": "periods for the absolute distance between the traded mid and the latent value to fall to half its size at the shock",
+      "parameter_mapping": [
+        "n_clob_fund",
+        "clob_fund_observation_noise",
+        "clob_fund_quote_offset"
+      ],
+      "accepted_error_band": {
+        "absolute": 30.0
+      },
+      "objective_weight": 1.0,
+      "gating": true,
+      "block": "price_discovery",
+      "units": "periods",
+      "target_value": 30.0,
+      "confidence": "low",
+      "match_type": "structural_requirement_with_qualitative_source",
+      "source_excerpt": "Algorithmic traders ... contribute to price discovery in the major currency pairs on EBS.",
+      "ingestion_note": "ADDED 2026-08-15. This is a structural requirement, not a fitted statistic, and it is marked low confidence for that reason: no source publishes a half-life for the convergence of a quoted mid onto a latent value, and the literature cited supports the order of magnitude rather than the number. One model period is one second, and price discovery in the largest currency pair on its primary venue is a phenomenon of seconds. A band of thirty periods either side of thirty therefore admits anything that converges inside a minute and refuses anything that does not. It exists because the target set had no gate that could see a book disconnected from the fundamental. Measured before it was added, the model sat two hundred and eighty basis points away from the latent value a hundred periods after a three per cent repricing, closing thirteen per cent of the gap in three hundred periods, and passed every other acceptance target while doing so. The cause was that no participant in the book quoted off the fundamental: the book fundamentalists were set to zero and the price was carried by an anonymous scaffold with no owner. This target is what would have caught that, and it is what now disciplines the number of them."
     }
   ],
   "withdrawn_targets": [

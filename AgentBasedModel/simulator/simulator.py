@@ -433,6 +433,35 @@ class Simulator:
                 and near_mid_depth.get('ask', 0.0) > 1e-9):
             return
 
+        # Emptiness around the fair price is not the same as emptiness. After
+        # a move in the fundamental the book is briefly somewhere else, and a
+        # corridor drawn around the new fair value finds nothing in it while
+        # the book itself is perfectly populated a few hundred basis points
+        # away. Measured on the crisis scenario the restoration fired on a
+        # quarter of the periods in the window, and on every one of them the
+        # book held size around its own mid: a median of fifty on the bid and
+        # a hundred and five on the ask, at a median dislocation of two
+        # hundred and forty basis points. It was reading the lag between the
+        # book and the fundamental, which is price discovery doing its work,
+        # and answering it with uncapped anonymous liquidity.
+        #
+        # A book that is populated around its own mid does not need a
+        # backstop. It needs the arbitrage and the informed flow that are
+        # already there to move it, and those are what close the gap.
+        try:
+            own_mid = self.clob.mid_price()
+        except Exception:
+            own_mid = None
+        if own_mid is not None and own_mid > 0:
+            try:
+                own_depth = self.clob.total_depth_around(own_mid, 25)
+            except Exception:
+                own_depth = None
+            if (own_depth is not None
+                    and own_depth.get('bid', 0.0) > 1e-9
+                    and own_depth.get('ask', 0.0) > 1e-9):
+                return
+
         self.exchange.rebalance_background_liquidity(
             fair_price,
             corridor_bps=25.0,
@@ -847,6 +876,13 @@ class Simulator:
 
             if self.env is not None:
                 self.env.observe_order_flow(period_trades)
+                # Every arm, including the one carrying no facility, so that a
+                # paired comparison differs in the facility and not in whether
+                # the cascade channel exists at all.
+                self.env.observe_dealer_sector(
+                    [t for t in self.traders
+                     if type(t).__name__ == 'MarketMaker']
+                )
 
             # 7. Arbitrageurs align AMM prices
             if self.arbitrageur is not None:
@@ -1038,12 +1074,17 @@ class Simulator:
                    mm_level_step_ticks: float = calibrated_default('mm_level_step_ticks', 2.0),
                    mm_inv_skew_bps: float = calibrated_default('mm_inv_skew_bps', 0.3),
                    mm_revenue_horizon: int = calibrated_default('mm_revenue_horizon', 300),
+                   mm_stale_touch_ratio: float = calibrated_default('mm_stale_touch_ratio', 0.06),
                    fast_lp_base_spread_bps: float = calibrated_default('fast_lp_base_spread_bps', 1.6),
                    fast_lp_quote_life: int = calibrated_default('fast_lp_quote_life', 3),
                    fast_lp_base_qty: int = calibrated_default('fast_lp_base_qty', 1),
                    fast_lp_levels: int = calibrated_default('fast_lp_levels', 1),
                    fast_lp_base_withdraw_prob: float = calibrated_default('fast_lp_base_withdraw_prob', 0.10),
                    fast_lp_stress_abstention: float = calibrated_default('fast_lp_stress_abstention', 0.10),
+                   fast_lp_vol_multiple: float = calibrated_default('fast_lp_vol_multiple', 1.0),
+                   dealer_cascade_gain: float = calibrated_default('dealer_cascade_gain', 0.0),
+                   dealer_capacity_threshold: float = calibrated_default('dealer_capacity_threshold', 0.5),
+                   mm_softlimit: float = calibrated_default('mm_softlimit', 100.0),
                    mm_min_withdraw_ticks: int = calibrated_default('mm_min_withdraw_ticks', 4),
                    mm_reentry_ticks: int = calibrated_default('mm_reentry_ticks', 3),
                    mm_withdraw_confirmation_ticks: int = calibrated_default(
@@ -1104,7 +1145,7 @@ class Simulator:
                    amm_lp_loss_rebate_fraction: float = calibrated_default(
                        'amm_lp_loss_rebate_fraction', 0.0),
                    # Prefunded arbitrage wallet. The one-pool defaults are one
-                   # times the corresponding reserves: deliberately large
+                   # times the corresponding reserves, large by design
                    # enough not to bind ordinary alignment, while keeping both
                    # trade directions resource backed and auditable.
                    amm_arb_cash_buffer_ratio: float = calibrated_default('amm_arb_cash_buffer_ratio', 1.0),
@@ -1227,6 +1268,8 @@ class Simulator:
             price_vol_scale=price_vol_scale,
             funding_rate_scale=funding_rate_scale,
         )
+        env._dealer_cascade_gain = max(0.0, float(dealer_cascade_gain))
+        env._dealer_capacity_threshold = min(0.99, max(0.0, float(dealer_capacity_threshold)))
 
         # CLOB wrapper: live or shadow
         if shadow_clob:
@@ -1379,7 +1422,8 @@ class Simulator:
                 levels=fast_lp_levels,
                 base_spread_bps=fast_lp_base_spread_bps,
                 base_withdraw_prob=fast_lp_base_withdraw_prob,
-                stress_abstention=fast_lp_stress_abstention))
+                stress_abstention=fast_lp_stress_abstention,
+                vol_multiple=fast_lp_vol_multiple))
         for _ in range(eff_n_latent_lp):
             book_agents.append(LatentLP(exchange, cash=2e4, env=env))
         for _ in range(n_clob_fund):
@@ -1406,6 +1450,7 @@ class Simulator:
                 mm_reentry_threshold + 0.55 * i * mm_withdraw_threshold_step,
             )
             _mm = MarketMaker(exchange, cash=7e4, env=env,
+                              softlimit=mm_softlimit,
                               amm_pools=amm_pools,
                               alpha0=mm_alpha0_base + i * mm_alpha0_step,
                               alpha1=mm_alpha1, alpha2=mm_alpha2,
@@ -1424,6 +1469,7 @@ class Simulator:
                               quote_refresh_tol_bps=mm_quote_refresh_tol_bps,
                               inv_skew_bps=mm_inv_skew_bps,
                               revenue_horizon=mm_revenue_horizon,
+                              stale_touch_ratio=mm_stale_touch_ratio,
                               min_withdraw_ticks=mm_min_withdraw_ticks,
                               reentry_ticks=mm_reentry_ticks,
                               withdrawal_confirmation_ticks=(

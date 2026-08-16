@@ -47,7 +47,8 @@ def tolerance_for(path: str) -> float:
     return 1e-6
 
 
-def main() -> None:
+def compare() -> list[str]:
+    """Differences between the current model and the stored baseline."""
     if not BASELINE_PATH.exists():
         raise SystemExit(
             f"Baseline file not found: {BASELINE_PATH}. "
@@ -81,6 +82,33 @@ def main() -> None:
                 f"delta={delta:.6f} > tol={tol:.6f}"
             )
 
+    return failures
+
+
+def test_the_model_matches_its_regression_baseline():
+    """The baseline exists to catch a change nobody meant to make.
+
+    It was never collected: this module carried a ``main`` and no test, so
+    pytest reported "no tests collected" for the whole regression directory
+    and the baseline drifted for as long as the model did. A change detector
+    that nobody runs detects nothing, and by the time it was read by hand it
+    disagreed with the model on nearly every metric, which says nothing about
+    any single change.
+
+    Regenerate explicitly after an intended change, with
+    ``python -m tests.regression.collect_metrics --write
+    tests/baselines/fx_regression_baseline.json``, so that the next
+    unintended one still shows up.
+    """
+    failures = compare()
+    assert not failures, (
+        f"{len(failures)} metric(s) drifted from the baseline:\n  "
+        + "\n  ".join(failures[:20])
+    )
+
+
+def main() -> None:
+    failures = compare()
     if failures:
         print("Regression check FAILED:")
         for line in failures:

@@ -1,6 +1,6 @@
 """Standalone plot regenerator.
 
-Reads the CSVs produced by `tests/resilience_test.py` and `tests/stat_tests.py`
+Reads the CSVs produced by `tools/resilience_study.py` and `tools/stat_study.py`
 and (re-)builds every individual plot in a clean per-type subfolder layout:
 
   output/resilience/scatter/{scenario}__{metric}.png

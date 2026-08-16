@@ -3,8 +3,8 @@
 
 The model does not contain a utility or value-of-trade schedule.  It therefore
 cannot identify total welfare or the value of requests that do not execute.
-This module deliberately reports the narrower quantities the model *does*
-identify and keeps transfers separate from resource costs:
+This module reports, by design, only the narrower quantities the model *does*
+identify, and keeps transfers separate from resource costs:
 
 * fees move value from takers to liquidity providers;
 * a subsidy moves quote currency from the sponsor to providers;
@@ -281,6 +281,152 @@ def account_pair(with_amm: ArmWindow, without_amm: ArmWindow,
             'counterparty to LVR/arbitrage gains',
             'window-specific arbitrage surplus (execution volume is observed)',
         ],
+    }
+
+
+
+def annual_frame(user_benefit_per_crisis_window: float,
+                 provider_crisis_loss_fraction: float,
+                 provider_calm_gain_fraction: float,
+                 committed_capital: float,
+                 window_seconds: float = float(CRISIS[1] - CRISIS[0]),
+                 risk_free_rate: float = 0.029,
+                 idle_capital_fraction: float = 0.0,
+                 operator_resource_cost: float = 0.0) -> dict:
+    """Put the taker gain and the provider cost on one annual footing.
+
+    The two sides of this facility are measured in different units, over
+    different populations and on different horizons, and comparing a
+    percentage reduction in spread with a percentage loss of pool value is
+    not meaningful. Expressing both as expected annual quantities is what
+    makes them commensurable.
+
+    With ``s`` the share of windows in the crisis state and ``N`` the number
+    of windows of this length in a year,
+
+        C(s) = N V [ s L_c - (1 - s) L_0 ] + r_f V k
+        B(s) = N s SUM_Q vbar_Q dC(Q)
+
+    Three things an earlier version of this accounting got wrong are kept
+    right here. The calm result enters the cost with a minus sign, because
+    it is a gain and reduces what has to be found from elsewhere. The
+    volume enters the benefit once: writing a share of volume beside a
+    volume weights the same quantity twice. And the opportunity cost sits
+    outside the factor ``N``, so ``N`` does not cancel between the two sides
+    and a comparison of levels requires it.
+
+    Two break even shares come out of this. The private one is where the
+    provider's own calm earnings cover its own crisis losses, and the social
+    one is where the taker gain covers the whole cost including the
+    opportunity cost of the capital. H5 is the claim that the social share
+    is the lower of the two; it is returned here as a measured gap rather
+    than asserted.
+
+    What this does not settle is whether a crisis window drawn from this
+    model may be scaled to a year at all. The model produces one shock per
+    run and says nothing about how often such shocks arrive or how long they
+    last in a market. That is an economic judgement about extrapolation and
+    not a missing unit, so ``s`` is a free variable here and no value of it
+    is supplied.
+    """
+    window = max(1e-9, float(window_seconds))
+    windows_per_year = SECONDS_PER_YEAR / window
+    capital = max(0.0, float(committed_capital))
+    loss = float(provider_crisis_loss_fraction)
+    gain = float(provider_calm_gain_fraction)
+    benefit_per_window = float(user_benefit_per_crisis_window)
+    idle_cost = (float(risk_free_rate) * capital
+                 * max(0.0, float(idle_capital_fraction)))
+
+    def private_cost(share: float) -> float:
+        """What the owner of the capital bears. Transfers count here."""
+        share = min(1.0, max(0.0, float(share)))
+        return (windows_per_year * capital * (share * loss - (1.0 - share) * gain)
+                + idle_cost + float(operator_resource_cost))
+
+    def social_cost(share: float) -> float:
+        """What the economy bears. Transfers do not count here.
+
+        The provider's loss against rebalancing is not consumed by anybody:
+        it is paid to whoever traded against the pool, so counting it as a
+        social cost charges the economy for a payment it makes to itself. It
+        was that treatment which made the facility look never worthwhile:
+        against the whole provider loss the taker gain was smaller by four
+        orders of magnitude, and against the resources actually consumed it
+        is larger than them.
+
+        The counterparties are overwhelmingly arbitrageurs. Measured over the
+        crisis window on sixty seeds, arbitrage is a median 98 per cent of the
+        volume executed against the pool, reported here as
+        ``arbitrage_share_of_amm_execution``. That is a share of volume and
+        not a decomposition of the loss itself: the trade log records routed
+        customer fills only, so the loss cannot be split by counterparty from
+        it, and no such split is claimed. An earlier version of this module
+        carried a literal 0.69 as the arbitrage share of the loss with no
+        measurement behind it anywhere in the repository. It has been removed
+        rather than carried forward, and nothing in this accounting depended
+        on it, since the whole of the loss is a transfer either way.
+
+        What society does give up is the return the committed capital would
+        have earned elsewhere, plus whatever it costs to run the thing.
+        """
+        del share
+        return idle_cost + float(operator_resource_cost)
+
+    cost = private_cost
+
+    def benefit(share: float) -> float:
+        share = min(1.0, max(0.0, float(share)))
+        return windows_per_year * share * benefit_per_window
+
+    # Private break even: the provider's own calm earnings cover its own
+    # crisis losses. Independent of N, which cancels.
+    denominator = loss + gain
+    private = gain / denominator if denominator > 0.0 else float('nan')
+
+    # Social break even: B(s) = C(s). Both sides are linear in s, so this
+    # solves in closed form; a non-positive slope difference means the two
+    # never meet and the facility is either always or never worthwhile.
+    # B(s) = C_social(s). The social cost does not vary with s, so this is
+    # simply the share at which the benefit covers the resources consumed.
+    social_slope = windows_per_year * benefit_per_window
+    social = (social_cost(0.0) / social_slope
+              if social_slope > 1e-18 else float('nan'))
+    # A root outside the unit interval is not a missing number, it is the
+    # statement that the two lines do not cross among admissible crisis
+    # shares. Distinguishing that from an unevaluated quantity matters,
+    # because one is a result and the other is a gap in the measurement.
+    verdict = 'crosses_within_unit_interval'
+    if not (social == social):
+        verdict = 'no_benefit_measured'
+    elif not (0.0 <= social <= 1.0):
+        verdict = 'never_worthwhile_to_society'
+        social = float('nan')
+
+    return {
+        'windows_per_year': windows_per_year,
+        'window_seconds': window,
+        'committed_capital': capital,
+        'user_benefit_per_crisis_window': benefit_per_window,
+        'provider_crisis_loss_fraction': loss,
+        'provider_calm_gain_fraction': gain,
+        'idle_capital_cost_per_year': idle_cost,
+        'private_break_even_share': private,
+        'social_break_even_share': social,
+        'social_is_lower_than_private': (
+            bool(social < private) if (social == social and private == private)
+            else None
+        ),
+        'break_even_gap': (
+            float(private - social) if (social == social and private == private)
+            else float('nan')
+        ),
+        'private_cost_at': {str(x): private_cost(x) for x in (0.001, 0.01, 0.05)},
+        'social_cost_per_year': social_cost(0.0),
+        'provider_loss_is_a_transfer': True,
+        'benefit_at': {str(x): benefit(x) for x in (0.001, 0.01, 0.05)},
+        'social_break_even_verdict': verdict,
+        'crisis_share_is_not_identified_by_this_model': True,
     }
 
 

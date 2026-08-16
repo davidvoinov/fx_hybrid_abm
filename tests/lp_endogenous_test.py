@@ -37,7 +37,7 @@ PASS, FAIL = "✓ PASS", "✗ FAIL"
 total_pass = total_fail = 0
 
 # Failed check labels recorded during the test currently running. The report
-# style below is deliberately non fatal so that a whole run is visible at once,
+# style below is non fatal by design so that a whole run is visible at once,
 # but a check that only prints is not a test: under any external runner every
 # function would pass regardless of the result. Each test therefore ends by
 # asserting that it recorded no failures, which is what ``_asserting`` does.

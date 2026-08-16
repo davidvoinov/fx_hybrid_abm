@@ -200,6 +200,10 @@ class ExchangeAgent:
         self._background_target_ratio = max(1.0, float(background_target_ratio))
         # Keep calm near-mid background support from collapsing with transient trader-depth decay.
         self._background_floor_ratio = 0.71
+        # How far into the corridor the backstop opens, as a fraction
+        # of the corridor. It stands behind the book's own quotes so
+        # that it cannot set the touch.
+        self._background_standoff_ratio = 0.5
         self._background_max_share_of_trader_depth = max(0.0, float(background_max_share_of_trader_depth))
         self._anchor_strength = max(0.0, min(1.0, float(anchor_strength)))
         self._anchor_threshold_bps = max(0.0, float(anchor_threshold_bps))
@@ -383,11 +387,29 @@ class ExchangeAgent:
     def _draw_background_price(self, side: str, reference_price: float,
                                corridor_bps: float,
                                aggressiveness: float = 1.0) -> float:
+        """Price for one anonymous backstop order.
+
+        The offset opens at a fraction of the corridor rather than at one
+        tick.  Anchoring it to the grid made this scaffold the tightest
+        quote in the book: it took the best price whenever the book's own
+        participants were anywhere but the minimum increment, and since the
+        best price is a minimum over many draws it settled on the floor, so
+        the realised spread of the whole market was the price grid plus a
+        thin tail rather than anything a participant decided.  Measured
+        across grids from two basis points down to nine hundredths, the book
+        sat at exactly one tick in about nine periods in ten.
+
+        A backstop exists so that a side of the book is not empty.  It is
+        not a participant competing for the touch, and it should not be the
+        thing that sets the price of a market, so it stands well behind
+        whoever is quoting and only shows where nobody else does.
+        """
         tick = self._tick_size()
         max_offset = max(tick, reference_price * corridor_bps / 10_000.0)
         aggressiveness = max(0.25, min(1.0, float(aggressiveness)))
         widen_mult = 1.0 + 2.5 * (1.0 - aggressiveness)
-        min_offset = tick * widen_mult
+        min_offset = max(tick * widen_mult,
+                         max_offset * self._background_standoff_ratio)
         scale = max(tick, max_offset / (3.0 * aggressiveness))
         offset = min(max_offset, min_offset + random.expovariate(1.0 / scale))
 
@@ -444,10 +466,21 @@ class ExchangeAgent:
         for side in ('bid', 'ask'):
             scaled_target = max(1.0, self._background_target_qty.get(side, 0.0) * target_ratio)
             if respect_trader_cap:
+                # The floor fades out as the book's own participants arrive.
+                # It used to survive at a fixed fraction of the target
+                # whatever they supplied, which made this scaffold a standing
+                # presence rather than a backstop: it held about half of the
+                # best prices through a crisis and after it, while owning no
+                # capital, bearing no inventory limit and being unable to
+                # withdraw. It exists for a book that is empty, and an empty
+                # book is what it is now measured against.
+                trader_qty = max(0.0, trader_near_qty.get(side, 0.0))
+                coverage = min(1.0, trader_qty / max(scaled_target, 1e-9))
+                floor = scaled_target * self._background_floor_ratio * (1.0 - coverage)
                 scaled_target = min(
                     scaled_target,
-                    scaled_target * self._background_floor_ratio
-                    + self._background_max_share_of_trader_depth * max(0.0, trader_near_qty.get(side, 0.0))
+                    floor
+                    + self._background_max_share_of_trader_depth * trader_qty
                 )
             targets[side] = scaled_target
         changed = False
@@ -634,12 +667,31 @@ class ExchangeAgent:
         target_mid = book_mid + (fair_price - book_mid) * anchor_strength
         dp = target_mid - book_mid
         noise_std = max(target_mid, 1e-9) * reprice_noise_bps / 10_000.0
+        # The standoff has to survive repricing. It is applied where a
+        # backstop price is drawn, but this path does not draw one: it shifts
+        # an existing order by a delta. After a large move in the fundamental
+        # the shifted orders landed wherever the arithmetic put them, which
+        # included the touch, and the backstop went back to setting the best
+        # price in the crisis it is supposed to stand behind.
+        # Some legacy tests build an exchange via ``__new__``, so these are
+        # read defensively in the same way the order factory reads its own.
+        standoff = max(
+            self._tick_size(),
+            target_mid
+            * getattr(self, '_background_corridor_bps', 25.0) / 10_000.0
+            * getattr(self, '_background_standoff_ratio', 0.5),
+        )
         repriced = False
         for side in ('bid', 'ask'):
             for order in self.order_book[side]:
                 if order.trader is None and random.random() < reprice_prob:
                     noise = random.gauss(0, noise_std) if noise_std > 0 else 0.0
-                    order.price = self.round_price(order.price + dp + noise)
+                    price = order.price + dp + noise
+                    if side == 'bid':
+                        price = min(price, target_mid - standoff)
+                    else:
+                        price = max(price, target_mid + standoff)
+                    order.price = self.round_price(price)
                     repriced = True
 
         if repriced:
@@ -1373,7 +1425,7 @@ class Trader:
         liquidity_factor = getattr(self.env, 'systemic_liquidity', 1.0) if self.env is not None else 1.0
         venue_basis_bps = getattr(self.env, 'venue_basis_bps', 0.0) if self.env is not None else 0.0
         arbitrage_capacity = getattr(self.env, 'arbitrage_capacity', 1.0) if self.env is not None else 1.0
-        # ``amm_share_pct`` is deliberately a weak prior under this routing
+        # ``amm_share_pct`` is a weak prior by design under this routing
         # regime, not a quota.  Its strength is exposed because the old
         # hard-coded 0.18 cap could otherwise decide AMM flow and LP fee income
         # without appearing in a robustness specification.
@@ -2009,7 +2061,7 @@ class Random(Trader):
     def _draw_customer_intent(self) -> Optional[tuple[str, int]]:
         """Draw the primitive arrival, side and requested quantity.
 
-        This is deliberately completed before venue choice.  Paired research
+        This is completed before venue choice by design.  Paired research
         arms can therefore share one demand innovation while routing and
         execution remain endogenous outcomes of the venue configuration.
         """
@@ -2235,7 +2287,7 @@ class RestingQuoteProvider:
         instead from the shape of the remaining book let a provider filled on
         its first level while still showing a second one conclude that nothing
         had happened to it, and let a provider that had never posted a side
-        create one on somebody else's execution. The age is deliberately
+        create one on somebody else's execution. By design the age is
         untouched: being hit is not the passage of time.
         """
         geo = getattr(self, '_geometry', None)
@@ -2448,6 +2500,58 @@ class FastRecyclerLP(RestingQuoteProvider, Random):
                                 self.levels, 0.45)
 
         for side in ('bid', 'ask'):
+            # A provider quoting around its own reference can find that
+            # reference on the far side of somebody else's. After a
+            # repricing this one follows the fundamental further than the
+            # dealer does, so in a crisis its quote lands through the stale
+            # book. Clamping it to one increment behind the touch is what
+            # made the crisis spread narrower than the calm one: the
+            # provider had widened, from one and a quarter basis points to
+            # nearly five, and the clamp put it on the grid anyway. The book
+            # then showed a tight spread made of quotes that would have
+            # traded against each other had either been allowed to.
+            #
+            # It trades instead, taking only the size shown, and does not
+            # also post that side this period.
+            if missing[side]:
+                # Re-read the book: a trade on the side handled first has
+                # already changed it, and deciding the second side against
+                # the pre-loop snapshot could send a second market order on
+                # a comparison that is no longer true.
+                live = self.market.spread()
+                if live is None:
+                    break
+                tightest = half_spread * (1.0 + 0.45 * min(missing[side]))
+                raw = mid - tightest if side == 'bid' else mid + tightest
+                crosses = ((side == 'bid' and raw >= live['ask'])
+                           or (side == 'ask' and raw <= live['bid']))
+                if crosses:
+                    against = 'ask' if side == 'bid' else 'bid'
+                    book = self.market.order_book.get(against)
+                    best = getattr(book, 'first', None) if book is not None else None
+                    shown = 0.0
+                    if best is not None:
+                        top = float(getattr(best, 'price', 0.0) or 0.0)
+                        for resting in book:
+                            if abs(float(getattr(resting, 'price', 0.0) or 0.0) - top) > 1e-12:
+                                break
+                            if getattr(resting, 'trader', None) is self:
+                                continue
+                            shown += float(getattr(resting, 'qty', 0.0) or 0.0)
+                    take = int(min(shown, self.max_qty))
+                    if take > 0:
+                        # Having traded, it does not also post this side.
+                        if side == 'bid':
+                            self._buy_market(take)
+                        else:
+                            self._sell_market(take)
+                        continue
+                    # Nothing could be taken, so the crossing is notional.
+                    # Falling through leaves the level loop to place the
+                    # quote behind the touch, which is a narrower quote than
+                    # intended but still a quote; skipping would withdraw
+                    # the provider from a side it meant to show.
+
             for level in missing[side]:
                 level_mult = 1.0 + 0.45 * level
                 offset = half_spread * level_mult
@@ -2657,6 +2761,9 @@ class Fundamentalist(Trader):
         self.flow_role = flow_role
         self.observation_noise_multiple = max(0.0, float(observation_noise_multiple))
         self.quote_offset_multiple = max(0.0, float(quote_offset_multiple))
+        # How far its own reading may move away from a resting order before
+        # that order stops representing an opinion and is withdrawn.
+        self.valuation_refresh_tol_bps = 25.0
 
     def _observed_value(self) -> Optional[float]:
         """This trader's own noisy reading of the latent value.
@@ -2749,7 +2856,7 @@ class Fundamentalist(Trader):
         # env.fair_price (placing passive bids/offers around fair) — a
         # complementary role to the FX-mode Fundamentalist, which acts as
         # a *liquidity taker* via choose_venue + market-order execution.
-        # The reading is this trader's own and is deliberately not the
+        # The reading is this trader's own and by design is not the
         # latent value itself; see ``_observed_value``.
         pf = self._observed_value()
         if pf is None:
@@ -2761,6 +2868,25 @@ class Fundamentalist(Trader):
 
         if spread is None:
             return
+
+        # A resting valuation has to be withdrawn when the valuation moves
+        # away from it. Without this the trader placed an order against its
+        # reading before a shock and left it there: measured across the
+        # crisis window its quotes stood two to three hundred basis points
+        # from the mid for hundreds of periods, which is not an opinion
+        # about value but an order nobody cancelled. The book's depth was
+        # counting them.
+        stale = [
+            order for order in self.orders
+            if getattr(order, 'qty', 0.0) > 0.0
+            and abs(float(order.price) - pf) / max(pf, 1e-9) * 1e4
+            > self.valuation_refresh_tol_bps
+        ]
+        for order in stale:
+            try:
+                self._cancel_order(order, reason='stale_valuation')
+            except Exception:
+                pass
 
         random_state = random.random()
         qty = Fundamentalist.draw_quantity(pf, p)
@@ -3030,6 +3156,10 @@ class MarketMaker(Trader):
                  quote_life: int = 290,
                  quote_refresh_tol_bps: float = 20.0,
                  revenue_horizon: int = 300,
+                 # Fraction of the spread it would quote now, inside
+                 # which a resting quote is withdrawn rather than left
+                 # to become the best price in the market.
+                 stale_touch_ratio: float = 0.06,
                  loss_threshold_bps: float = 50.0,
                  min_withdraw_ticks: int = 4,
                  reentry_ticks: int = 3,
@@ -3048,6 +3178,10 @@ class MarketMaker(Trader):
         # rest. Both are fractions of its own limit, so neither carries a
         # currency or a price level.
         self.unwind_floor_ratio = 0.25
+        # A resting quote is withdrawn once the price has drifted to
+        # within this fraction of the spread the dealer would quote
+        # now. It keeps a stale order from becoming the best price.
+        self.stale_touch_ratio = max(0.0, float(stale_touch_ratio))
         self.unwind_rate = 0.05
         self.panic = False
         # Brunnermeier-Pedersen coefficients
@@ -3190,10 +3324,25 @@ class MarketMaker(Trader):
         if sigma_base is not None and sigma_base > 0:
             stress_scale = max(1.0, self.env.sigma / sigma_base)
 
+        # The weight was additionally divided by the size of the gap it is
+        # meant to close, so the dealer trusted the latent value least at the
+        # moment it disagreed with the book most. After a three per cent
+        # repricing the three suppressors multiplied out to 0.0037 and the
+        # weight sat on its floor of 0.02: the dealer could see the price had
+        # moved three hundred basis points and was instructed to believe the
+        # book. A large disagreement is the strongest evidence the book is
+        # stale, not a reason to discount the evidence, so that term is gone.
+        #
+        # The other two are kept. A noisier estimate deserves less weight,
+        # which is what dividing by the stress scale does, and a dealer with
+        # a damaged liquidity factor is in no position to lead a price. The
+        # cap of a fifth is also kept: the latent value is not something a
+        # dealer observes, and a dealer weighting it heavily is copying an
+        # oracle rather than intermediating. The book carries its own
+        # participants who price off the fundamental directly, and price
+        # discovery is properly their work.
         liquidity_factor = self._liquidity_factor()
-        gap_bps = abs(fair_mid - book_mid) / max(book_mid, 1e-9) * 10_000.0
         fair_weight = 0.20 * liquidity_factor / stress_scale
-        fair_weight /= 1.0 + gap_bps / 75.0
         fair_weight = max(0.02, min(0.20, fair_weight))
         return book_mid + fair_weight * (fair_mid - book_mid)
 
@@ -3376,7 +3525,29 @@ class MarketMaker(Trader):
         return _lifecycle_observations(self, include_live=include_live)
 
     def _cancel_stale_dealer_orders(self, mid: float) -> int:
+        """Withdraw quotes the market has moved away from, or onto.
+
+        The drift tolerance alone is a symmetric rule, and the two
+        directions are not symmetric for a dealer.  A quote the price has
+        moved *away* from is harmless: it rests deep in the book, which is
+        where a bank's liquidity is supposed to sit and why its orders live
+        as long as they do.  A quote the price has moved *onto* is a
+        different matter, because it is now the best price in the market at
+        a level the dealer would not choose to show.
+
+        With a tolerance of twenty basis points in a market whose spread is
+        under one, that is what set the touch: the dealer's best quote sat
+        on the minimum increment three periods in four, not because it had
+        decided to quote there but because the mid had drifted onto an old
+        order.  The realised spread of the market was then the price grid.
+        Tightening the tolerance fixed the spread and destroyed the order
+        lifetime, which is a published statistic, because it amended the
+        deep ladder too.  Only the near side is amended here, so the touch
+        is chosen and the ladder still ages.
+        """
         cancelled = 0
+        half_spread = mid * self._target_spread_bps(mid) / 10_000.0 / 2.0
+        keep_out = self.stale_touch_ratio * half_spread
         for order in self.orders.copy():
             if getattr(order, 'qty', 0.0) <= 0.0:
                 continue
@@ -3384,7 +3555,8 @@ class MarketMaker(Trader):
             if reference is None or reference <= 0.0:
                 continue
             move_bps = abs(mid - reference) / reference * 1e4
-            if move_bps <= self.quote_refresh_tol_bps:
+            drifted_inside = abs(float(order.price) - mid) < keep_out
+            if move_bps <= self.quote_refresh_tol_bps and not drifted_inside:
                 continue
             try:
                 self._cancel_order(order, reason='stale_reprice')
@@ -3561,7 +3733,7 @@ class MarketMaker(Trader):
         # threshold between them while exogenous stress indices and a shock
         # dummy carried the rest, so the dealer withdrew in response to the
         # weather rather than to its own position.
-        # There is deliberately no shock-window dummy here. A scenario may
+        # There is no shock-window dummy here, by design. A scenario may
         # move prices, funding or flow, but a dealer leaves only if those
         # events show up in its inventory/P&L or in observable current market
         # conditions. With a unit withdrawal threshold, reaching either the
@@ -3693,11 +3865,23 @@ class MarketMaker(Trader):
         over the window after the shock none of them did: zero per cent
         active across five hundred and fifty periods.
 
-        What it posts here is one sided and reduce only.  This is a dealer
-        working out of a position, not one making a market: there is no
-        second side, the size never exceeds the excess being unwound, and
-        the interest is shown passively rather than paid away, because
-        nothing in the model establishes how urgently the position must go.
+        What it posts is one sided and reduce only.  This is a dealer working
+        out of a position, not one making a market: there is no second side
+        and the size never exceeds the excess being unwound.
+
+        This is only reached once the dealer has stood down, and standing
+        down is itself the statement that the position is no longer one it
+        wants to carry, so it does not simply wait to be filled. Resting
+        alone left the position frozen: after a crisis the touch belongs to
+        the fast non-bank provider, and a stood-down dealer's passive
+        interest sat unfilled for as long as it was measured, with inventory
+        held at four fifths of the limit for a hundred and fifty periods.
+
+        It takes what is shown to it and rests the remainder.  A dealer
+        reducing risk pays the spread on the size that is actually there;
+        it does not sweep a thin book to get done, both because the price
+        it would realise gets worse with every level and because the size
+        beyond the touch is not on offer at the touch price.
         """
         inventory = float(self.assets)
         limit = max(1.0, float(self.softlimit))
@@ -3706,11 +3890,44 @@ class MarketMaker(Trader):
             return
         qty = max(1, int(min(excess, self.unwind_rate * limit)))
         tick = self.market._tick_size() if hasattr(self.market, '_tick_size') else 0.01
-        # One tick off the reference, on the side that reduces the position.
+        side = 'bid' if inventory > 0 else 'ask'
+        book = self.market.order_book.get(side)
+        shown = 0.0
+        best = getattr(book, 'first', None) if book is not None else None
+        if best is not None:
+            price = float(getattr(best, 'price', 0.0) or 0.0)
+            for order in book:
+                if abs(float(getattr(order, 'price', 0.0) or 0.0) - price) > 1e-12:
+                    break
+                if getattr(order, 'trader', None) is self:
+                    continue
+                shown += float(getattr(order, 'qty', 0.0) or 0.0)
+        crossed = int(min(qty, shown))
+        rested = qty - crossed
+        # The remainder joins the market rather than undercutting it. Resting
+        # it one tick from the mid made a reduce-only order the best price in
+        # the book, so a dealer that had stood down was setting the touch on
+        # the minimum increment, and the crisis spread collapsed onto the
+        # grid instead of widening. It is shown no tighter than the price
+        # already on that side, and no tighter than the dealer's own quote.
+        own = mid * self._target_spread_bps(mid) / 10_000.0 / 2.0
+        sp = self.market.spread()
         if inventory > 0:
-            self._sell_limit(qty, self.market.round_price(mid + tick))
+            floor_px = mid + max(own, tick)
+            if sp is not None:
+                floor_px = max(floor_px, float(sp['ask']))
+            if crossed > 0:
+                self._sell_market(crossed)
+            if rested > 0:
+                self._sell_limit(rested, self.market.round_price(floor_px))
         else:
-            self._buy_limit(qty, self.market.round_price(mid - tick))
+            cap_px = mid - max(own, tick)
+            if sp is not None:
+                cap_px = min(cap_px, float(sp['bid']))
+            if crossed > 0:
+                self._buy_market(crossed)
+            if rested > 0:
+                self._buy_limit(rested, self.market.round_price(cap_px))
 
     def _state_quote_adjustments(self) -> Dict[str, float | bool]:
         if self.mm_state == 'withdrawn':
@@ -3842,22 +4059,78 @@ class MarketMaker(Trader):
                     ask_price = (self.market.ceil_price(eff_mid + 0.5 * tick)
                                  if hasattr(self.market, 'ceil_price')
                                  else round(eff_mid + 0.5 * tick, 2))
-                if bid_price >= sp['ask']:
+                # A quote that would cross the book is not a quote, it is a
+                # trade the dealer has decided to make and then declined to
+                # make. Clamping it to one increment behind the touch was
+                # what kept the crisis spread on the grid: after a repricing
+                # the book lags the fundamental, the dealer follows the
+                # fundamental further than the book has, and its intended
+                # quote lands through the stale side. That happened on
+                # twelve per cent of calm periods and thirty five per cent
+                # of crisis periods, and on each of them the dealer was
+                # placed at the touch by the clamp rather than by any view
+                # of its own, so the quoted spread of the market in a crisis
+                # was set by an anti-crossing rule.
+                #
+                # A dealer holding that view sells to the stale bid instead.
+                # It takes only the size that is shown, for the same reason
+                # the inventory unwind does: the price beyond the touch is
+                # not on offer at the touch. Having traded, it does not also
+                # post on that side this period.
+                place_bid = place_ask = True
+                if i == 0 and sp is not None:
+                    crossed_side = None
+                    if ask_price <= sp['bid']:
+                        crossed_side = 'bid'
+                    elif bid_price >= sp['ask']:
+                        crossed_side = 'ask'
+                    if crossed_side is not None:
+                        shown = 0.0
+                        book = self.market.order_book.get(crossed_side)
+                        best = getattr(book, 'first', None) if book is not None else None
+                        if best is not None:
+                            top = float(getattr(best, 'price', 0.0) or 0.0)
+                            for resting in book:
+                                if abs(float(getattr(resting, 'price', 0.0) or 0.0) - top) > 1e-12:
+                                    break
+                                if getattr(resting, 'trader', None) is self:
+                                    continue
+                                shown += float(getattr(resting, 'qty', 0.0) or 0.0)
+                        take = int(min(shown, max(bid_qty, ask_qty)))
+                        if take > 0:
+                            if crossed_side == 'bid':
+                                self._sell_market(take)
+                                # Only the crossing side is withheld. This
+                                # loop body places both sides, so skipping it
+                                # outright also cancelled the level-0 bid,
+                                # which crossed nothing: the dealer withdrew
+                                # from the side it still wanted to show, on
+                                # exactly the periods crossing is common.
+                                place_ask = False
+                            else:
+                                self._buy_market(take)
+                                place_bid = False
+
+                # One side of the book can be empty after a sweep, and then
+                # there is no opposing quote to stay behind. The dealer still
+                # has its own reference and quotes around that; reading the
+                # absent side raised a TypeError that ended the run.
+                if sp is not None and bid_price >= sp['ask']:
                     bid_price = (self.market.floor_price(sp['ask'] - tick)
                                  if hasattr(self.market, 'floor_price')
                                  else round(sp['ask'] - tick, 2))
-                if ask_price <= sp['bid']:
+                if sp is not None and ask_price <= sp['bid']:
                     ask_price = (self.market.ceil_price(sp['bid'] + tick)
                                  if hasattr(self.market, 'ceil_price')
                                  else round(sp['bid'] + tick, 2))
                 if bid_price >= ask_price:
                     continue
-                if i in missing['bid']:
+                if place_bid and i in missing['bid']:
                     self._submit_dealer_order(
                         'bid', bid_qty, bid_price,
                         reference_mid=mid, quote_level=i,
                     )
-                if i in missing['ask']:
+                if place_ask and i in missing['ask']:
                     self._submit_dealer_order(
                         'ask', ask_qty, ask_price,
                         reference_mid=mid, quote_level=i,

@@ -1,6 +1,6 @@
 {
-  "protocol_version": "book-lp-final-v2",
-  "frozen_at": "2026-08-13",
+  "protocol_version": "book-lp-final-v4",
+  "frozen_at": "2026-08-16",
   "scope": "Computational closure of the EBS book calibration and endogenous AMM-LP block. Manuscript prose is outside this protocol.",
   "revision_history": [
     {
@@ -19,25 +19,52 @@
         "All bank dealers receive exchangeable equal-price queue priority from a dedicated paired-invariant scheduler stream."
       ],
       "thresholds_changed": false,
-      "holdout_opened_at_freeze": false
+      "holdout_opened_at_freeze": false,
+      "holdout_result": "pass",
+      "holdout_consumed_at": "2026-08-13",
+      "holdout_note": "Run on seeds 10042 to 10341 and passed with zero gating and zero mechanism failures, calm activation 0.0033 and an EBS seed pass rate of 0.963. The phase status field was never updated from untouched_single_use_holdout, so the manifest claimed a holdout that had in fact been spent. Those seeds are now seen and cannot serve as a holdout again."
+    },
+    {
+      "version": "book-lp-final-v4",
+      "frozen_at": "2026-08-16",
+      "result": "frozen_after_structural_rebuild",
+      "reason": "Every frozen hash changed, so v2 could authorise nothing. The rotation is recorded rather than performed quietly, because a protocol that is reissued whenever it becomes inconvenient is not a commitment device. The holdout seeds have still never been evaluated and the commitment is carried across unchanged.",
+      "changes": [
+        "price_tick declared at the EBS increment; it had been a constructor default and the single largest determinant of the quoted spread.",
+        "A dealer or fast provider quote that would cross the book now trades instead of being clamped behind the touch.",
+        "A resting dealer quote is withdrawn once the price has come inside a fraction of the spread that dealer would quote now.",
+        "Book fundamentalists read the latent value with noise and quote around it, so price discovery is carried by participants and not by repricing anonymous orders.",
+        "fast_lp_vol_multiple declared and calibrated jointly with the constant part of the quote; the spread now responds to volatility with an elasticity of 0.285 against 0.11 before.",
+        "Dealer capacity contagion added, inert below a threshold and convex above it after BIS Working Paper 1138. A gain of zero reproduces the previous model and the regression fingerprint confirms it.",
+        "funding_spread_comovement_sign demoted from a gate to a diagnostic after its power was measured at zero: the model passes it at a funding coefficient of zero and at minus ten times the calibrated magnitude.",
+        "Touch depth and the order-flow persistence band demoted to diagnostics; the band had been read from a column of Wald statistics.",
+        "Spread target restated on the published annual average for 2025 rather than a favourable slice of 2024.",
+        "price_discovery_half_life_ticks added as a gate, measured in the crisis scenario.",
+        "Signature keys no longer include __module__. The same source tree produced two different signatures depending on whether a module was imported or run with python -m, so a protocol frozen one way refused the identical code run the other way.",
+        "mm_softlimit declared and raised from 100 to 200. The inventory term alone was reaching the withdrawal threshold on calm paths, because the limit had been left at the value it carried when the dealer held a single unit.",
+        "Holdout seed commitment moved to 20042, since the 10042 block was spent under v2.",
+        "The per-seed EBS pass rate was demoted from a gate to a diagnostic. It gated dispersion, not centring, which the panel targets already cover, and neither its 0.90 threshold nor the band behind it has a source. It had read as satisfied because it was measuring a defect: with the quote-life cap set to the published 290 seconds and an anti-crossing rule preventing dealers taking each other, every dealer order ended on its timer and the per-seed median clung to the cap, giving a p5-p95 span of 55 seconds and 99.3 per cent inside the band. With quotes able to trade the statistic is better centred, 292 against a target of 290 where v2 gave 268.5, and disperses over 141 seconds, so 83.7 per cent sit inside."
+      ],
+      "thresholds_changed": true,
+      "holdout_opened_at_freeze": false,
+      "version_note": "Numbered v4 and not v3. The string book-lp-final-v3 is reserved in tools/robustness/lp_acceptance.py as DIRECT_PROTOCOL_VERSION, where it selects a stricter direct-acceptance contract that forbids a historical amendment and requires the LP signatures to be frozen directly. This rotation does not satisfy that contract, so taking the name would have claimed a guarantee it does not provide."
     }
   ],
   "phases": {
     "development": {
       "seed_start": 42,
       "seed_count": 300,
-      "status": "permanently_seen_development_panel",
-      "output": "output/final/book_development_v2_300.json"
+      "status": "pending_rerun_under_v3",
+      "output": "output/final/book_development_v4_300.json"
     },
     "holdout": {
-      "seed_start": 10042,
+      "seed_start": 20042,
       "seed_count": 300,
-      "status": "untouched_single_use_holdout",
-      "output": "output/final/book_holdout_v2_300.json"
+      "status": "committed_unseen_single_use_holdout",
+      "output": "output/final/book_holdout_v4_300.json"
     }
   },
   "thresholds": {
-    "minimum_ebs_seed_pass_rate": 0.9,
     "maximum_calm_activation_rate": 0.05,
     "minimum_crisis_activation_rate": 0.75,
     "minimum_activation_rate_gap": 0.5
@@ -64,20 +91,46 @@
       "n_iter": 1000,
       "status": "seen_mechanism_and_sensitivity_panel"
     },
-    "crisis_window_offsets": [0, 100],
+    "crisis_window_offsets": [
+      0,
+      100
+    ],
     "factorial": {
-      "exit_entry_patience": [145, 290, 580],
-      "ewma_alpha": [0.01, 0.02, 0.05],
+      "exit_entry_patience": [
+        145,
+        290,
+        580
+      ],
+      "ewma_alpha": [
+        0.01,
+        0.02,
+        0.05
+      ],
       "design": "complete_3_by_3_grid_plus_disclosed_oat_controls",
       "expected_specifications": 15
     },
     "routing_sensitivity": {
       "design": "one_parameter_at_a_time_around_primary_baseline",
       "expected_specifications": 8,
-      "routing_cost_scale_bps": [2.0, 4.0, 8.0],
-      "routing_prior_mix_cap": [0.0, 0.18],
-      "cost_noise_std": [0.0, 1.5, 3.0],
-      "hfmm_reserve_factor": [0.5, 1.0, 2.0]
+      "routing_cost_scale_bps": [
+        2.0,
+        4.0,
+        8.0
+      ],
+      "routing_prior_mix_cap": [
+        0.0,
+        0.18
+      ],
+      "cost_noise_std": [
+        0.0,
+        1.5,
+        3.0
+      ],
+      "hfmm_reserve_factor": [
+        0.5,
+        1.0,
+        2.0
+      ]
     },
     "entry_identification_arm": {
       "seed_start": 42,
@@ -101,7 +154,14 @@
       "seed_count": 300,
       "n_iter": 1000,
       "lp_model": "endogenous",
-      "fee_bps": ["calibrated", 1.0, 2.5, 5.0, 10.0, 20.0],
+      "fee_bps": [
+        "calibrated",
+        1.0,
+        2.5,
+        5.0,
+        10.0,
+        20.0
+      ],
       "bootstrap_draws": 20000,
       "bootstrap_seed": 0
     },
@@ -114,8 +174,16 @@
       "lp_model": "endogenous",
       "annual_capital_rate": 0.029,
       "arms": [
-        {"name": "private_primary", "subsidy_rate": 0.0, "loss_rebate": 0.0},
-        {"name": "full_loss_guarantee_upper_bound", "subsidy_rate": 1.3319e-09, "loss_rebate": 1.0}
+        {
+          "name": "private_primary",
+          "subsidy_rate": 0.0,
+          "loss_rebate": 0.0
+        },
+        {
+          "name": "full_loss_guarantee_upper_bound",
+          "subsidy_rate": 1.3319e-09,
+          "loss_rebate": 1.0
+        }
       ]
     },
     "mechanism_controls": [
@@ -157,9 +225,9 @@
     "lp_acceptance_code_sha256": "27fca6e3e8f8c6f298d00db407b762148f906d6067d75c11f780858934435166"
   },
   "frozen_hashes": {
-    "target_matrix_sha256": "fb5347fe19fb884e05ba0da5c9829fd2f8a125bf388c2f2f9e67ab695d36441f",
-    "primary_runtime_sha256": "d241af821b54cf48a8e833c290ac4990ca0ec9f2f89e5dac70b2eca27275079c",
-    "simulation_model_signature": "43f2546550ce44ec",
-    "book_acceptance_signature": "4cfd5a5324c09b69"
+    "target_matrix_sha256": "a1908b86be67ca1c4a346aa0afbb0b72bf24023af09d0c3a84faae90555e1400",
+    "primary_runtime_sha256": "e2d4efa9ea4e17581dc81c6c96c1d261e19299afba31376265129584de303511",
+    "simulation_model_signature": "321df2a54aba9682",
+    "book_acceptance_signature": "d687d4ca2f2ffba8"
   }
 }

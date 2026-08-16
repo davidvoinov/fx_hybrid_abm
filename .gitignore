@@ -22,6 +22,12 @@ literature/
 # Confidential peer review correspondence.
 FRL/
 
+# The manuscript and its working notes. This repository carries the model, and
+# the paper is written beside it rather than inside it. The two checks that
+# compare a printed figure against a stored run skip when the article is not
+# present and run when it is.
+EconMod/
+
 # LaTeX build products. The manuscript source is versioned, its output is not.
 *.aux
 *.bbl

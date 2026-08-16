@@ -128,13 +128,25 @@ def test_protocol_book_threshold_names_match_acceptance_code():
     }
 
 
-def test_v2_protocol_preserves_failed_development_and_commits_fresh_holdout():
+def test_protocol_preserves_its_history_and_commits_a_disjoint_holdout():
+    """Every rotation stays visible and never quietly reuses holdout seeds.
+
+    This used to pin the version string to ``book-lp-final-v2``, which caught an
+    unrecorded rotation but also failed on a recorded one. The invariant that
+    matters is not that the version never moves: it is that whatever version is
+    current appears in the revision history, so the number of rotations stays
+    countable by a reader, and that the holdout commitment never overlaps the
+    development seeds.
+    """
     protocol = json.loads((ROOT / 'calibration' / 'final_protocol.json').read_text())
     development = protocol['phases']['development']
     holdout = protocol['phases']['holdout']
     revisions = {row['version']: row for row in protocol['revision_history']}
 
-    assert protocol['protocol_version'] == 'book-lp-final-v2'
+    assert protocol['protocol_version'] in revisions, (
+        'the current protocol version has no revision-history entry, so a '
+        'rotation happened without being recorded'
+    )
     assert development['seed_count'] == holdout['seed_count'] == 300
     assert set(range(development['seed_start'],
                      development['seed_start'] + development['seed_count'])).isdisjoint(
@@ -147,6 +159,21 @@ def test_v2_protocol_preserves_failed_development_and_commits_fresh_holdout():
     assert revisions['book-lp-final-v1']['holdout_opened'] is False
     assert revisions['book-lp-final-v2']['thresholds_changed'] is False
     assert revisions['book-lp-final-v2']['holdout_opened_at_freeze'] is False
+
+    # A holdout that has been spent must not be re-committed under a new
+    # version. The v2 block was run on 13.08.2026 and passed, so any later
+    # commitment has to name different seeds.
+    spent = [row for row in protocol['revision_history']
+             if row.get('holdout_result') is not None]
+    for row in spent:
+        assert 'holdout_consumed_at' in row, (
+            'a recorded holdout result must say when it was consumed'
+        )
+    if spent:
+        assert holdout['seed_start'] != 10042, (
+            'seeds 10042 onward were evaluated under v2 and cannot serve as a '
+            'holdout again'
+        )
 
 
 def test_holdout_authorization_requires_the_exact_passing_development(tmp_path):

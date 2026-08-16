@@ -183,32 +183,44 @@ def claims():
 
 
 def _calibration_claims():
-    """Canonical calm-state figures copied into the calibration table."""
+    """Canonical figures copied into the calibration table.
+
+    The table reports the seed panel, so the panel report is what it is checked
+    against. This used to read ``primary_acceptance_report.json``, which one
+    invocation of ``main.py`` writes from a single seed, and holding a multi
+    seed table to a single seed artifact compared two different measurements.
+
+    Only the acceptance set belongs here. Touch depth, the cross venue basis,
+    price impact, order flow run length and the facility share were demoted to
+    diagnostics once their sources were checked, so the table no longer prints
+    them and requiring it to would assert the opposite of the current design.
+    """
     import json
     path = os.path.join(ROOT, 'output', 'main_aware',
-                        'primary_acceptance_report.json')
+                        'calibration_search_report.json')
     if not os.path.exists(path):
         return []
     try:
         report = json.load(open(path, encoding='utf-8'))
     except (ValueError, OSError):
         return []
-    metrics = report.get('realized_metrics', {})
+    scenarios = report.get('scenario_metrics', {})
+    calm = scenarios.get('baseline_primary', {})
+    # Price discovery is the convergence of the traded mid onto the latent value
+    # after a displacement, so it is only defined in a scenario that has one.
+    crisis = scenarios.get('dealer_liquidity_crisis', {})
     specs = [
-        ('mean quoted spread', 'quoted_spread_mean_bps', 3, 1.0),
-        ('median quoted spread', 'quoted_spread_bps', 3, 1.0),
-        ('one sided touch depth', 'near_touch_depth', 1, 1.0),
-        ('order flow mean run length', 'order_flow_mean_run_length', 2, 1.0),
-        ('price impact', 'impact_curve', 3, 1.0),
-        ('facility flow share', 'amm_volume_share', 1, 100.0),
-        ('dealer order median life', 'dealer_order_lifetime_median_seconds', 0, 1.0),
-        ('cross venue basis', 'cross_venue_basis_bps', 2, 1.0),
+        ('mean quoted spread', calm, 'quoted_spread_mean_bps', 2),
+        ('dealer order median life', calm, 'dealer_order_lifetime_median_seconds', 1),
+        ('non bank order median life', calm, 'nonbank_order_lifetime_median_seconds', 2),
+        ('dealer maker volume share', calm, 'dealer_maker_volume_share', 2),
+        ('price discovery half life', crisis, 'price_discovery_half_life_ticks', 1),
     ]
     out = []
-    for label, key, places, scale in specs:
-        value = metrics.get(key)
+    for label, source, key, places in specs:
+        value = source.get(key)
         if isinstance(value, (int, float)):
-            out.append((label, float(value) * scale, places, 'tab:calib'))
+            out.append((label, float(value), places, 'tab:calib'))
     return out
 
 

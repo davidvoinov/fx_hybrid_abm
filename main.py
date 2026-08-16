@@ -1076,6 +1076,35 @@ def build_parser(default_venue_choice_rule: str = "liquidity_aware") -> argparse
     g.add_argument("--fast-lp-base-withdraw-prob", type=float,
                    default=float(calibrated_default('fast_lp_base_withdraw_prob', 0.10)),
                    help="Probability that the fast automated provider does not quote at all in a period when conditions are calm")
+    g.add_argument("--mm-softlimit", type=float,
+                   default=float(calibrated_default('mm_softlimit', 100.0)),
+                   dest="mm_softlimit",
+                   help="Inventory beyond which a dealer stands down. It was a "
+                        "constructor default of 100 and absent from the manifest "
+                        "while the inventory term alone drives the withdrawal "
+                        "score, so it set when a dealer leaves.")
+    g.add_argument("--dealer-cascade-gain", type=float,
+                   default=float(calibrated_default('dealer_cascade_gain', 0.0)),
+                   dest="dealer_cascade_gain",
+                   help="Strength of the feedback from impaired dealer capacity "
+                        "back into systemic liquidity. Zero reproduces the "
+                        "earlier model, in which the emptiness of the book made "
+                        "conditions no worse.")
+    g.add_argument("--dealer-capacity-threshold", type=float,
+                   default=float(calibrated_default('dealer_capacity_threshold', 0.5)),
+                   dest="dealer_capacity_threshold",
+                   help="Share of dealer quoting capacity that must be impaired "
+                        "before the feedback acts at all, after BIS Working "
+                        "Paper 1138.")
+    g.add_argument("--fast-lp-vol-multiple", type=float,
+                   default=float(calibrated_default('fast_lp_vol_multiple', 1.0)),
+                   dest="fast_lp_vol_multiple",
+                   help="Loading on price volatility in the quote of the fast "
+                        "automated provider. It compensates the provider for "
+                        "leaving a quote exposed for its whole life, so it is "
+                        "what makes the quoted spread respond to volatility at "
+                        "all. It was a constructor default of 1.0 and absent "
+                        "from the manifest until 16.08.2026.")
     g.add_argument("--fast-lp-stress-abstention", type=float,
                    default=float(calibrated_default('fast_lp_stress_abstention', 0.10)),
                    help="Most the fast automated provider abstains from "
@@ -1104,6 +1133,9 @@ def build_parser(default_venue_choice_rule: str = "liquidity_aware") -> argparse
     g.add_argument("--mm-revenue-horizon", type=int,
                    default=int(calibrated_default('mm_revenue_horizon', 300)),
                    help="Horizon in ticks over which the dealer accumulates the trading revenue that enters its withdrawal score")
+    g.add_argument("--mm-stale-touch-ratio", type=float,
+                   default=float(calibrated_default('mm_stale_touch_ratio', 0.06)),
+                   help="Fraction of the spread the dealer would quote now, inside which a resting quote is withdrawn instead of being left to become the best price in the market")
     g.add_argument("--mm-inv-skew-bps", type=float,
                    default=float(calibrated_default('mm_inv_skew_bps', 0.3)),
                    help="How far the dealer shifts its quoted mid against its own position, in bps per unit of inventory. It sets how fast inventory mean reverts, and the anchor is the median half life of an FX dealer position")
@@ -1378,12 +1410,17 @@ def build_sim(args: argparse.Namespace) -> Simulator:
         mm_level_step_ticks=args.mm_level_step_ticks,
         mm_inv_skew_bps=args.mm_inv_skew_bps,
         mm_revenue_horizon=args.mm_revenue_horizon,
+        mm_stale_touch_ratio=args.mm_stale_touch_ratio,
         fast_lp_base_spread_bps=args.fast_lp_base_spread_bps,
         fast_lp_quote_life=args.fast_lp_quote_life,
         fast_lp_base_qty=args.fast_lp_base_qty,
         fast_lp_levels=args.fast_lp_levels,
         fast_lp_base_withdraw_prob=args.fast_lp_base_withdraw_prob,
         fast_lp_stress_abstention=args.fast_lp_stress_abstention,
+        fast_lp_vol_multiple=args.fast_lp_vol_multiple,
+        mm_softlimit=args.mm_softlimit,
+        dealer_cascade_gain=args.dealer_cascade_gain,
+        dealer_capacity_threshold=args.dealer_capacity_threshold,
         mm_min_withdraw_ticks=args.mm_min_withdraw_ticks,
         mm_reentry_ticks=args.mm_reentry_ticks,
         mm_withdraw_confirmation_ticks=args.mm_withdraw_confirmation_ticks,

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import functools
 import os
+import pytest
 import sys
 
 import numpy as np
@@ -150,19 +151,23 @@ def test_the_rule_table_agrees_with_the_code():
     """
     subsection("the liquidity supply rule table matches the module")
 
-    import inspect
     import re
-    from AgentBasedModel.agents.agents import AMMProvider
+    from AgentBasedModel.simulator.simulator import calibrated_default
 
     root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-    tex = open(os.path.join(root, 'EconMod', 'article', 'econmod.tex'),
-               encoding='utf-8').read()
+    article = os.path.join(root, 'EconMod', 'article', 'econmod.tex')
+    if not os.path.exists(article):
+        pytest.skip('manuscript not present beside the model')
+    tex = open(article, encoding='utf-8').read()
     i = tex.find('\\label{tab:lprule}')
     body = tex[i:tex.find('\\end{tabular}', i)] if i >= 0 else ''
     check_bool("the table is present", bool(body))
 
-    sig = inspect.signature(AMMProvider.__init__)
-    cap = sig.parameters['max_adj'].default
+    # The cap to check is the one the primary runtime carries, which comes from
+    # the manifest and drives the endogenous population. This check used to read
+    # the default on the reduced form AMMProvider, a class the primary model
+    # does not instantiate, so it held the table to a number no run ever used.
+    cap = calibrated_default('amm_lp_max_adj', 0.0023873085271651773)
     # Printed as a fraction rather than a decimal, so the check looks for the
     # denominator the module actually carries.
     denom = round(1.0 / cap)
@@ -414,11 +419,20 @@ def test_a_report_counts_the_seeds_it_has():
 
 @_asserting
 def test_the_manuscript_matches_the_stored_runs():
-    """A number in the paper has to be a number that was measured."""
+    """A number in the paper has to be a number that was measured.
+
+    The manuscript is not part of this repository, which carries the model
+    alone, so this check is skipped where the article is absent. It still runs
+    wherever the two are checked out beside each other, which is where a
+    mismatch between a printed figure and a stored run can actually occur.
+    """
     subsection("the manuscript is checked against the runs")
 
     import importlib.util
     root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+    article = os.path.join(root, 'EconMod', 'article', 'econmod.tex')
+    if not os.path.exists(article):
+        pytest.skip('manuscript not present beside the model')
     spec = importlib.util.spec_from_file_location(
         'verify_article_claims', os.path.join(root, 'tools',
                                               'verify_article_claims.py'))

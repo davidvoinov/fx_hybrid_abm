@@ -16,6 +16,17 @@ import math
 from typing import Optional, List
 
 
+def _decay_per_second(half_life_seconds: float) -> float:
+    """Per-tick multiplier implied by a half-life stated in seconds.
+
+    One tick is one second. Stating the half-life and deriving the
+    multiplier keeps the duration visible in the parameter rather than
+    buried in a decimal that has to be inverted to be understood.
+    """
+    half_life = max(1e-9, float(half_life_seconds))
+    return float(0.5 ** (1.0 / half_life))
+
+
 class MarketEnvironment:
     """
     Manages exogenous volatility (σ_t), funding liquidity cost (c_t),
@@ -65,7 +76,7 @@ class MarketEnvironment:
                  shock_anchor_weight: float = 0.75,
                  shock_price_freeze_ticks: int = 1,
                  # session_cycle <= 0 disables the intraday cycle. The
-                 # paper's primary scope (calibration manifest) deliberately
+                 # paper's primary scope (calibration manifest) by design
                  # excludes Asia/London/NY decomposition, so the default for
                  # FX runs is now disabled; a positive value re-enables a
                  # 4-session round-robin for studies that explicitly want it.
@@ -116,7 +127,18 @@ class MarketEnvironment:
         # exponentially back to the regime baseline.
         self._shock_sigma_overlay: float = 0.0
         self._shock_c_overlay: float = 0.0
-        self._shock_decay: float = 0.93   # per-step multiplier ≈ half-life ~10 iters
+        # Stress durations are stated in seconds, because one tick is one
+        # second and a per-tick multiplier hides the duration it implies.
+        # These were set when a tick had no defined length and were never
+        # restated when it acquired one: 0.93 per tick is a half-life of ten
+        # seconds, and the dysfunction state below lasted under twenty. A
+        # scenario named after a dealer liquidity crisis was therefore over
+        # in the time it takes to read its name, which is why the spread
+        # response is a spike with no decay to measure.
+        self.stress_overlay_half_life_seconds: float = 10.0
+        self._shock_decay: float = _decay_per_second(
+            self.stress_overlay_half_life_seconds
+        )
 
         # ── Shock liquidity-crisis state ────────────────────────────────
         # Managed by apply_shock(), decremented by step().
@@ -132,12 +154,48 @@ class MarketEnvironment:
         self._clob_order_flow_imbalance: float = 0.0
         self._logged_clob_order_flow_imbalance: float = 0.0
         self._liquidity_shock: float = 0.0        # systemic liquidity damage
-        self._liquidity_shock_decay: float = 0.90
 
-        # Configurable per-tick decay speeds for liquidity-crisis state
-        self._reprice_prob_recovery: float = 0.05       # +per tick toward 0.6
-        self._anchor_strength_recovery: float = 0.03    # +per tick toward 0.25
-        self._bg_target_ratio_recovery: float = 0.08    # +per tick toward 1.0
+        # ── Dealer capacity cascade ─────────────────────────────────
+        # Systemic liquidity was entirely exogenous: it responded to
+        # volatility, funding and the exogenous liquidity shock, but never to
+        # what the dealer sector had actually done. A shock could therefore
+        # empty the book without the emptiness itself making conditions any
+        # worse, so the model had no channel through which one dealer leaving
+        # pushes the next one closer to leaving.
+        #
+        # The link runs through dealer capacity, following the finding in BIS
+        # Working Paper 1138 that limited intermediation capacity worsens
+        # illiquidity only at high levels of balance sheet utilisation. Below
+        # the threshold the sector absorbs the loss of a dealer and nothing
+        # propagates; above it the same marginal loss bites, and it bites
+        # convexly. Capacity is read from the depth each dealer actually
+        # supplies relative to its own unimpaired quote, which counts a dealer
+        # quoting defensively at a fraction of its size as the fraction it
+        # supplies, and counts one that has withdrawn as zero. Headcount and
+        # depth are therefore the same measurement here and are not added
+        # twice.
+        self._dealer_capacity_impairment: float = 0.0
+        self.dealer_capacity_history: List[float] = []
+        self._dealer_capacity_threshold: float = 0.5
+        self._dealer_cascade_gain: float = 0.0
+        self.liquidity_half_life_seconds: float = 6.6
+        self._liquidity_shock_decay: float = _decay_per_second(
+            self.liquidity_half_life_seconds
+        )
+        # How long the dysfunction state itself lasts, in seconds, before the
+        # book is treated as no longer in the aftermath of the shock.
+        self.stress_duration_seconds: float = 24.0
+
+        # How long the suppressed book states take to climb back, in
+        # seconds. These were per-tick increments, and they are what
+        # actually ended the crisis: repricing climbed from its suppressed
+        # level to normal in about eight ticks whatever the dysfunction
+        # state said, so lengthening that state changed nothing. The
+        # duration is stated here and the per-tick step derived from it.
+        self.state_recovery_seconds: float = 8.0
+        self._reprice_prob_recovery: float = 0.6 / self.state_recovery_seconds
+        self._anchor_strength_recovery: float = 0.25 / self.state_recovery_seconds
+        self._bg_target_ratio_recovery: float = 1.0 / self.state_recovery_seconds
         self._toxic_flow_decay: float = 0.85            # multiplicative per tick
         self._systemic_liquidity: float = 1.0
         self._recovery_support: float = 1.0
@@ -320,6 +378,28 @@ class MarketEnvironment:
     def session_vol_multiplier(self) -> float:
         return self._session_vol_multiplier
 
+    def _stress_seconds(self, intensity: float, base_share: float = 0.0,
+                        slope_share: float = 1.0,
+                        floor_share: float = 0.5) -> int:
+        """Periods the dysfunction state lasts, scaled by shock intensity.
+
+        Stated as a duration rather than as an arithmetic expression in
+        ticks, so that the length of a modelled crisis is a declared input
+        and can be set against the episode it claims to represent.
+
+        The three entry points do not agree on how a shock of a given
+        intensity maps to a duration, and collapsing them onto one shape
+        silently shortened two of them: the funding path fell from twenty
+        six periods to nineteen at the calibrated intensity and the
+        cancellation path from twenty two to fourteen. Each keeps its own
+        floor and slope as fractions of the declared duration, so the
+        translation into seconds is exact rather than approximate.
+        """
+        scale = max(0.0, float(intensity))
+        duration = self.stress_duration_seconds
+        affine = (base_share + slope_share * scale) * duration
+        return int(max(floor_share * duration, affine))
+
     def is_stress(self) -> bool:
         if self.stress_start is None:
             return False
@@ -422,6 +502,7 @@ class MarketEnvironment:
             self.price_history.append(self._price)
         self.flow_imbalance_history.append(self._order_flow_imbalance)
         self.systemic_liquidity_history.append(self._systemic_liquidity)
+        self.dealer_capacity_history.append(self._dealer_capacity_impairment)
 
     def apply_shock(self, pct: float):
         """Apply an instantaneous shock to the fair price.
@@ -451,7 +532,7 @@ class MarketEnvironment:
         self._shock_c_overlay = (self.c_high - self.c_low) * intensity
 
         # ── Liquidity crisis state ──────────────────────────────────
-        self.shock_ticks_remaining = max(12, int(24 * intensity))
+        self.shock_ticks_remaining = self._stress_seconds(intensity)
         self.mm_pause_ticks = max(2, int(6 * intensity))
         self.cancel_wave_frac = min(0.8, 0.15 + 0.35 * intensity)
         self.reprice_prob_override = max(0.05, 0.25 - 0.08 * intensity)
@@ -495,7 +576,13 @@ class MarketEnvironment:
         c_jump = (self.c_high - self.c_low) * intensity
         self._shock_sigma_overlay = max(self._shock_sigma_overlay, sigma_jump)
         self._shock_c_overlay = max(self._shock_c_overlay, c_jump)
-        self.shock_ticks_remaining = max(self.shock_ticks_remaining, 12 + int(18 * intensity))
+        # 12 + 18*intensity in the old tick form, as shares of the declared
+        # duration of twenty four seconds.
+        self.shock_ticks_remaining = max(
+            self.shock_ticks_remaining,
+            self._stress_seconds(intensity, base_share=0.5,
+                                 slope_share=0.75, floor_share=0.0),
+        )
         self._update_systemic_liquidity()
 
     def apply_liquidity_shock(self, cancel_frac: float,
@@ -517,7 +604,12 @@ class MarketEnvironment:
         if cancel_frac <= 0 and intensity <= 0:
             return
 
-        self.shock_ticks_remaining = max(self.shock_ticks_remaining, 10 + int(20 * intensity))
+        # 10 + 20*intensity in the old tick form.
+        self.shock_ticks_remaining = max(
+            self.shock_ticks_remaining,
+            self._stress_seconds(intensity, base_share=10.0 / 24.0,
+                                 slope_share=20.0 / 24.0, floor_share=0.0),
+        )
         if force_mm_pause:
             pause = (2 + int(8 * intensity) if forced_pause_ticks is None
                      else max(0, int(forced_pause_ticks)))
@@ -618,6 +710,30 @@ class MarketEnvironment:
         flow_damage = 0.08 * abs(self._order_flow_imbalance) * (stress_excess + self._liquidity_shock)
         self._liquidity_shock = min(0.85, self._liquidity_shock + flow_damage)
         self._update_systemic_liquidity()
+
+    def observe_dealer_sector(self, dealers):
+        """Read how much quoting capacity the dealer sector is still supplying.
+
+        Called every period in every arm. The measure is one minus the mean
+        share of its own unimpaired depth that each dealer offers, so a sector
+        quoting in full reads zero and a sector wholly withdrawn reads one.
+
+        By design this is the same quantity the dealer uses to size its own
+        quote, so the cascade cannot be driven by a state variable that has no
+        consequence for what the book actually shows.
+        """
+        supplied = []
+        for dealer in dealers or ():
+            adjust = getattr(dealer, '_state_quote_adjustments', None)
+            if adjust is None:
+                continue
+            try:
+                supplied.append(max(0.0, min(1.0, float(adjust()['depth_mult']))))
+            except Exception:
+                continue
+        if not supplied:
+            return
+        self._dealer_capacity_impairment = 1.0 - sum(supplied) / len(supplied)
 
     def observe_venue_conditions(self, clob, amm_pools: dict, arbitrageur=None):
         """Update AMM-specific venue stress signals from live cross-venue state."""
@@ -787,6 +903,19 @@ class MarketEnvironment:
             + 0.35 * flow_pressure
             + self._liquidity_shock
         )
+
+        # Dealer capacity enters above a threshold and convexly, so that the
+        # sector absorbs ordinary attrition and only a genuinely impaired one
+        # feeds back. The square is what makes a cascade a cascade: the second
+        # dealer to leave an already strained sector does more damage than the
+        # first did. The term is bounded by the gain, and systemic liquidity
+        # keeps its own floor, so the loop cannot run away.
+        if self._dealer_cascade_gain > 0.0:
+            span = max(1e-9, 1.0 - self._dealer_capacity_threshold)
+            excess = max(0.0, self._dealer_capacity_impairment
+                         - self._dealer_capacity_threshold) / span
+            friction += self._dealer_cascade_gain * min(1.0, excess) ** 2
+
         liquidity = 1.0 / (1.0 + friction)
         liquidity *= self._session_liquidity_multiplier
         self._systemic_liquidity = max(0.2, min(1.0, liquidity))
