@@ -87,7 +87,7 @@ class MetricsLogger:
         # Flow allocation: {venue: [volume per iter]}
         # These are successful routed-customer fills only.  Arbitrage is an
         # economically different source of AMM volume and is kept in the
-        # separate dictionaries below rather than silently mixed into the
+        # separate dictionaries below and not silently mixed into the
         # customer-routing estimand.
         self.flow_volume: Dict[str, List[float]] = {}
         self.flow_count: Dict[str, List[int]] = {}
@@ -318,7 +318,7 @@ class MetricsLogger:
         # and therefore does not enter ``flow_volume`` or any customer venue
         # share.  Keeping the successful base quantity by pool is sufficient
         # to measure how much of AMM execution and LP fee income is generated
-        # by price alignment rather than routed customer orders.
+        # by price alignment and not routed customer orders.
         arb_venue_vol: Dict[str, float] = {}
         arb_venue_cnt: Dict[str, int] = {}
         for tr in arbitrage_trades or []:
@@ -795,8 +795,15 @@ class MetricsLogger:
             out.append(float(value) if math.isfinite(value) else float('nan'))
         return out
 
-    def clob_touch_depth_series(self) -> List[float]:
-        """One-sided CLOB depth at the touch, proxied by min(best bid qty, best ask qty)."""
+    def clob_thin_side_depth_series(self) -> List[float]:
+        """The smaller of the two sides of the book, within the recorded band.
+
+        Named for what it is. It was called touch depth and documented as the
+        quantity resting at the best bid and ask, while the rows it reads are
+        total depth within twenty five basis points of the mid, a band of some
+        twenty seven pips. The two differ by two orders: the touch holds single
+        digits of base units where this holds several hundred.
+        """
         out: List[float] = []
         for row in self.clob_depth:
             if not isinstance(row, dict):

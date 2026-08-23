@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from AgentBasedModel.agents import ExchangeAgent, Universalist, Chartist, Fundamentalist, MarketMaker, AMMProvider, AMMArbitrageur, Random, FastRecyclerLP, LatentLP
+from AgentBasedModel.agents import (ExchangeAgent, Fundamentalist, MarketMaker,
+                                   AMMProvider, AMMArbitrageur, Random,
+                                   FastRecyclerLP)
 from AgentBasedModel.utils.math import mean, std, difference, rolling
 import random
 from typing import Optional, List, Dict, Any
@@ -23,7 +25,7 @@ _CALIBRATION_PATH = _os.path.join(
 def _venue_seed(name: str) -> int:
     """A per venue stream that is stable across processes.
 
-    The venue name is hashed with a fixed digest rather than with the built in
+    The venue name is hashed with a fixed digest and not with the built in
     ``hash``, which is salted per process. Mixing in a draw from the global
     generator keeps distinct venues on distinct streams while tying the whole
     thing to the seed the caller has already set.
@@ -79,10 +81,13 @@ class Simulator:
     """
 
     # Weight of a fully capitalised facility in the recovery support sum,
-    # named here rather than buried in the expression because it is the one
+    # named here and not buried in the expression because it is the one
     # number in that sum which decides whether the recovery leg of the
     # comparison is a test or a restatement of its own inputs.
-    VENUE_RECOVERY_WEIGHT = 0.15
+    # Retired: a facility must not multiply the environment's recovery by a
+    # declared weight, since recovery is one of the outcomes the arms are
+    # compared on and the two arm types entered it through different channels.
+    VENUE_RECOVERY_WEIGHT = 0.0
 
     def __init__(self,
                  exchange: ExchangeAgent = None,
@@ -107,7 +112,7 @@ class Simulator:
                  ):
         self.exchange = exchange
         self.events = [event.link(self) for event in events] if events else None
-        self.traders = traders  # used in classic mode (+ SimulatorInfo)
+        self.traders = traders  # used in classic mode
 
         # Price shock (multi-venue mode)
         self.shock_iter = shock_iter
@@ -120,7 +125,7 @@ class Simulator:
         # Multi-venue
         self.clob = clob
         self.amm_pools = amm_pools or {}
-        # Depth each pool opened with, captured on first use rather than here
+        # Depth each pool opened with, captured on first use and not here
         # so that it does not depend on the order in which the factory builds
         # the venue and matches the pool the run actually starts from.
         self._venue_opening_depth: Dict[str, float] = {}
@@ -162,11 +167,11 @@ class Simulator:
         self.arbitrageur = arbitrageur
         self.logger = logger
 
-        # SimulatorInfo — only created when classic traders list is given
-        if self.traders:
-            self.info = SimulatorInfo(self.exchange, self.traders)
-        else:
-            self.info = None
+        # The per agent collector of the general purpose model is gone. It
+        # recorded equities, cash, positions, sentiments and dividends for
+        # every agent on every period, and the only readers were the per agent
+        # plots of that model, which drew quantities this one does not have.
+        self.info = None
 
     def _risk_managed_traders(self):
         seen = set()
@@ -201,7 +206,7 @@ class Simulator:
             # and withdrawal rules.  Financing a balance sheet needs the rate
             # on the model's one-second clock instead.  Passing the stress
             # state here charged roughly 20 bps per second in calm conditions
-            # rather than about 1.3e-9 per second.
+            # and not about 1.3e-9 per second.
             funding_rate = max(0.0, float(getattr(self.env, 'funding_rate', 0.0)))
 
         for trader in self._risk_managed_traders():
@@ -250,7 +255,14 @@ class Simulator:
         return dealers
 
     def _market_maker_state_summary(self) -> Dict[str, Any]:
-        market_makers = self._market_makers()
+        # Incumbent dealers only. An obliged quoter an arm adds is a
+        # MarketMaker by class and belongs in the roster, since it quotes and
+        # needs its place in the queue, but counting it here put a sixth
+        # dealer that never withdraws into the denominator of every state
+        # share. The withdrawal an arm reported was then measured against a
+        # different sector from the one the control was measured against.
+        market_makers = [dealer for dealer in self._market_makers()
+                         if not getattr(dealer, 'is_facility_arm', False)]
         states = ('active', 'defensive', 'withdrawn', 'reentering')
         counts = {state: 0 for state in states}
         if not market_makers:
@@ -317,75 +329,31 @@ class Simulator:
             return 0.0
         return depth if _math.isfinite(depth) and depth > 0.0 else 0.0
 
-    def _venue_support_share(self) -> Optional[float]:
-        """How much of its opening depth the facility is still standing up.
-
-        ``None`` when there is no facility in the market, which is what makes
-        the paired comparison run at all.  Otherwise the mean over pools of a
-        number in [0, 1]: one while the facility is at or above the depth it
-        opened with, less as its reserves are drawn down, zero once it closes.
-
-        Depth rather than outstanding provider capital, because the two move
-        on different clocks.  A provider's participation decision runs on the
-        smoothing and patience horizons, which are far longer than the window
-        the recovery of the market is measured over; measured on capital, the
-        facility's contribution is therefore constant inside that window and
-        the recovery result would be fixed by construction again.  Reserves
-        respond within it, falling to about four fifths of opening depth at
-        the trough of the calibrated crisis, so the term varies while the
-        recovery it is supposed to explain is happening.
-
-        The reference is the depth the pool opened with: fixed by the
-        configuration, the same in every seed, and needing no smoothing
-        parameter of its own.  Calm drift carries the pool a few per cent
-        above it, which the cap at one absorbs, so drift cannot manufacture
-        support the facility is not supplying.
-        """
-        if not self.amm_pools:
-            return None
-
-        shares = []
-        for name, pool in self.amm_pools.items():
-            if getattr(pool, 'closed', False):
-                shares.append(0.0)
-                continue
-            opening = self._venue_opening_depth.get(name)
-            if opening is None:
-                opening = self._pool_depth(pool)
-                self._venue_opening_depth[name] = opening
-            if opening <= 0.0:
-                shares.append(1.0 if self._pool_depth(pool) > 0.0 else 0.0)
-                continue
-            shares.append(max(0.0, min(1.0, self._pool_depth(pool) / opening)))
-        return sum(shares) / len(shares)
-
     def _estimate_recovery_support(self) -> float:
-        """Aggregate standing liquidity behind the market's return to normal.
+        """How much standing liquidity the incumbent market itself supplies.
 
-        Every provider that can hold the near side of the book after a shock
-        belongs here.  The facility was previously left out, so the one
-        provider in the market that never withdraws contributed nothing, and
-        the recovery leg of the comparison could not have come out any way
-        other than the way it did.
+        This multiplies the rate at which the environment restores normal
+        quoting, so it is an input to the very outcome the arms are compared
+        on. A facility entering it moves that outcome by a declared weight
+        instead of by what the facility does, and the two arm types entered it
+        through different channels: a pool through a venue term of fifteen
+        hundredths, an obliged quoter through its share of an active dealer
+        sector, which is an order of magnitude smaller. The comparison then
+        carried an assumed difference in recovery on top of a measured one.
 
-        The facility enters through its state and not through its presence.
-        A closed or drawn down pool supports less, and how much depth it
-        still holds during a crisis is an outcome of the run rather than an
-        input to it, so the sign of the recovery result is not fixed in
-        advance by this term.  The weight sits between the two book
-        providers: the facility quotes continuously rather than
-        intermittently, which argues for the upper end of their band, while
-        it holds no view on the fundamental, which argues against exceeding
-        it.
+        Only the incumbents count here now. What a facility is worth reaches
+        the outcome through the prices it quotes, which is the channel the
+        design set out to measure.
         """
         fast_agents = [tr for tr in self.book_agents if isinstance(tr, FastRecyclerLP)]
-        latent_agents = [tr for tr in self.book_agents if isinstance(tr, LatentLP)]
+        latent_agents = []
 
         fast_total = len(fast_agents)
-        latent_total = len(latent_agents)
+        latent_total = 0
         fast_active = sum(1 for tr in fast_agents if getattr(tr, 'last_quoted', False))
-        latent_active = sum(1 for tr in latent_agents if getattr(tr, 'last_quoted', False))
-        market_makers = self._market_makers()
+        latent_active = 0
+        market_makers = [mm for mm in self._market_makers()
+                         if not getattr(mm, 'is_facility_arm', False)]
         mm_active = 0.0
         if market_makers:
             mm_active = sum(1 for mm in market_makers if getattr(mm, 'mm_state', 'active') != 'withdrawn') / len(market_makers)
@@ -397,9 +365,6 @@ class Simulator:
         if latent_total > 0:
             dynamic_support += 0.18 * (latent_active / latent_total)
         dynamic_support += 0.08 * mm_active
-        venue_share = self._venue_support_share()
-        if venue_share is not None:
-            dynamic_support += self.VENUE_RECOVERY_WEIGHT * venue_share
 
         return max(0.75, min(1.65, static_support + dynamic_support))
 
@@ -567,6 +532,12 @@ class Simulator:
         direction = 1.0 if order_flow_side == 'buy' else -1.0
 
         if self.env is not None:
+            # Before either limb fires: the funding shock runs first and sets
+            # this from its own argument default, so an episode duration
+            # applied afterwards would govern only what the first call left.
+            self.env.configure_stress_overlay_decay(
+                config.get('stress_overlay_decay')
+            )
             if abs(fundamental_pct) > 0:
                 self.env.apply_fundamental_shock(fundamental_pct, anchor_weight=1.0)
             if funding_vol_intensity > 0:
@@ -588,7 +559,7 @@ class Simulator:
                 decay_kwargs = {}
                 for key in ('reprice_prob_recovery', 'anchor_strength_recovery',
                             'bg_target_ratio_recovery', 'toxic_flow_decay',
-                            'liquidity_shock_decay'):
+                            'liquidity_shock_decay', 'stress_overlay_decay'):
                     val = config.get(key)
                     if val is not None:
                         decay_kwargs[key] = float(val)
@@ -621,14 +592,17 @@ class Simulator:
     # ------------------------------------------------------------------
 
     def simulate(self, n_iter: int, silent: bool = False) -> Simulator:
-        if self.multi_venue:
-            return self._simulate_multi(n_iter, silent)
-        return self._simulate_classic(n_iter, silent)
+        out = (self._simulate_multi(n_iter, silent) if self.multi_venue
+               else self._simulate_classic(n_iter, silent))
+        self._tick_origin = getattr(self, '_tick_origin', 0) + int(n_iter)
+        return out
 
     # ---- classic single-venue loop --------------------------------------
 
     def _simulate_classic(self, n_iter: int, silent: bool) -> Simulator:
-        for it in tqdm(range(n_iter), desc='Simulation', disable=silent):
+        _t0 = getattr(self, '_tick_origin', 0)
+        for _i in tqdm(range(n_iter), desc='Simulation', disable=silent):
+            it = _t0 + _i
             # Scenario events
             if self.events:
                 for event in self.events:
@@ -637,13 +611,6 @@ class Simulator:
             # Capture info
             if self.info is not None:
                 self.info.capture()
-
-            # Behaviour changes (Universalist / Chartist)
-            for trader in self.traders:
-                if type(trader) == Universalist:
-                    trader.change_strategy(self.info)
-                elif type(trader) == Chartist:
-                    trader.change_sentiment(self.info)
 
             # Call traders
             random.shuffle(self.traders)
@@ -659,7 +626,15 @@ class Simulator:
     # ---- multi-venue loop -----------------------------------------------
 
     def _simulate_multi(self, n_iter: int, silent: bool) -> Simulator:
-        for t in tqdm(range(n_iter), desc='Simulation', disable=silent):
+        # The tick counter persists across calls. It used to be the loop index,
+        # which restarts at zero every time simulate is called, so a run built
+        # by stepping one period at a time never reached the tick the shock is
+        # scheduled on and silently produced a shock free path. A single call
+        # is unaffected, since the origin is zero and the counter increments as
+        # the index did.
+        _t0 = getattr(self, '_tick_origin', 0)
+        for _i in tqdm(range(n_iter), desc='Simulation', disable=silent):
+            t = _t0 + _i
 
             # 0. Price shock — hits ALL venues simultaneously
             if self.shock_iter is not None and t == self.shock_iter:
@@ -717,15 +692,10 @@ class Simulator:
             # correction and made the documented arb_trade_fraction_cap
             # less meaningful as a robustness control.
 
-            # 1c. SimulatorInfo capture + behaviour changes
+            # 1c. per period capture hook
             if self.info is not None:
                 try:
                     self.info.capture()
-                    for tr in self.book_agents:
-                        if type(tr) == Universalist:
-                            tr.change_strategy(self.info)
-                        elif type(tr) == Chartist:
-                            tr.change_sentiment(self.info)
                 except Exception:
                     pass
 
@@ -820,7 +790,7 @@ class Simulator:
             period_routing: List[dict] = []
             self._fx_scheduler_rng.shuffle(self.fx_traders)
             replenishing_providers = [tr for tr in self.book_agents
-                                      if isinstance(tr, (FastRecyclerLP, LatentLP, MarketMaker))]
+                                      if isinstance(tr, (FastRecyclerLP, MarketMaker))]
             if self.mm is not None:
                 replenishing_providers.append(self.mm)
             for tr in self.fx_traders:
@@ -879,9 +849,16 @@ class Simulator:
                 # Every arm, including the one carrying no facility, so that a
                 # paired comparison differs in the facility and not in whether
                 # the cascade channel exists at all.
+                # Incumbent dealers only. An obliged quoter added by an arm
+                # is a MarketMaker by class and was counted here, so an arm
+                # carrying a quoter that never withdraws diluted the measured
+                # withdrawal share and weakened the cascade it feeds, while
+                # the arm carrying a pool did not. The comparison then differed
+                # in the measurement as well as in the facility.
                 self.env.observe_dealer_sector(
                     [t for t in self.traders
-                     if type(t).__name__ == 'MarketMaker']
+                     if type(t).__name__ == 'MarketMaker'
+                     and not getattr(t, 'is_facility_arm', False)]
                 )
 
             # 7. Arbitrageurs align AMM prices
@@ -942,7 +919,6 @@ class Simulator:
                    # for aggressiveness heterogeneity.
                    n_mm: int = calibrated_default('n_mm', 5),
                    n_fast_lp: int = calibrated_default('n_fast_lp', 10),
-                   n_latent_lp: int = calibrated_default('n_latent_lp', 6),
                    # CLOB-side fundamental / momentum book agents. With
                    # the FX-aware Fundamentalist branch (env.fair_price
                    # anchor) these participate as *limit-order liquidity
@@ -962,8 +938,6 @@ class Simulator:
                        'clob_fund_observation_noise', 1.0),
                    clob_fund_quote_offset: float = calibrated_default(
                        'clob_fund_quote_offset', 0.5),
-                   n_clob_chart: int = calibrated_default('n_clob_chart', 1),
-                   n_clob_univ: int = calibrated_default('n_clob_univ', 1),
                    n_fx_takers: int = calibrated_default('n_fx_takers', 15),
                    n_fx_fund: int = calibrated_default('n_fx_fund', 5),
                    n_retail: int = calibrated_default('n_retail', 10),
@@ -1085,6 +1059,12 @@ class Simulator:
                    dealer_cascade_gain: float = calibrated_default('dealer_cascade_gain', 0.0),
                    dealer_capacity_threshold: float = calibrated_default('dealer_capacity_threshold', 0.5),
                    mm_softlimit: float = calibrated_default('mm_softlimit', 100.0),
+                   mm_client_flow_intensity: float = calibrated_default('mm_client_flow_intensity', 0.0),
+                   mm_client_flow_persistence: float = calibrated_default('mm_client_flow_persistence', 0.85),
+                   mm_core_threshold: float = calibrated_default('mm_core_threshold', 0.0),
+                   facility_arm: str = 'reserve',
+                   arm_capital: float = 0.0,
+                   arm_spread_bps: float = 12.0,
                    mm_min_withdraw_ticks: int = calibrated_default('mm_min_withdraw_ticks', 4),
                    mm_reentry_ticks: int = calibrated_default('mm_reentry_ticks', 3),
                    mm_withdraw_confirmation_ticks: int = calibrated_default(
@@ -1115,7 +1095,7 @@ class Simulator:
                    # 'endogenous' is a population that compares its own
                    # result against an outside option, exits when the pool
                    # stops paying, and re-enters when it starts again, so
-                   # liquidity supply is a decision rather than a setting.
+                   # liquidity supply is a decision and not a setting.
                    amm_lp_model: str = calibrated_default('amm_lp_model', 'endogenous'),
                    amm_lp_n_providers: int = calibrated_default('amm_lp_n_providers', 5),
                    amm_lp_n_entrants: int = calibrated_default('amm_lp_n_entrants', 5),
@@ -1157,6 +1137,7 @@ class Simulator:
                    bg_target_ratio_recovery: Optional[float] = None,
                    toxic_flow_decay: Optional[float] = None,
                    liquidity_shock_decay: Optional[float] = None,
+                   stress_overlay_decay: Optional[float] = None,
                    ) -> Simulator:
         """
         Build a ready-to-run multi-venue FX simulator.
@@ -1169,7 +1150,7 @@ class Simulator:
             If False, no AMM pools / LP / arbitrageur are created.
         clob_liq : float  (0 … ∞, default 1.0)
             Multiplier that scales CLOB-side liquidity:
-            ``clob_volume``, ``n_noise``, ``n_fast_lp``, ``n_latent_lp``,
+            ``clob_volume``, ``n_noise``, ``n_fast_lp``,
             and MM depth params ``d0`` are all multiplied by this factor.
         amm_liq : float  (0 … ∞, default 1.0)
             Multiplier that scales AMM-side liquidity:
@@ -1230,7 +1211,6 @@ class Simulator:
         # agent into the book adds an unidentified passive supplier.
         eff_n_noise = max(0, int(n_noise * clob_liq))
         eff_n_fast_lp = max(0, int(n_fast_lp * clob_liq))
-        eff_n_latent_lp = max(0, int(n_latent_lp * clob_liq))
         eff_d0 = 75.0 * clob_liq
         eff_cpmm_res = cpmm_reserves * amm_liq
         eff_hfmm_res = hfmm_reserves * amm_liq
@@ -1271,6 +1251,37 @@ class Simulator:
         env._dealer_cascade_gain = max(0.0, float(dealer_cascade_gain))
         env._dealer_capacity_threshold = min(0.99, max(0.0, float(dealer_capacity_threshold)))
 
+        # ── Resource matched arms ───────────────────────────────────
+        # Every arm carries the same committed capital and the same inventory
+        # capacity and differs only in how it prices. Without that the
+        # comparison pools three things, and the sizes here make the point:
+        # the reserve priced facility as calibrated holds about 815,000 of
+        # quote value against 350,000 for the whole dealer sector, so a
+        # facility is not a marginal addition to the incumbents but more
+        # capital than all of them together.
+        #
+        #   reserve              the reserve priced pool, capital added
+        #   dealer_of_last_resort  one obliged dealer quoting a single spread
+        #   passive_book         a mechanical ladder that cannot withdraw
+        #   reallocation         the reserve priced pool funded by the sector
+        #
+        # The reallocation arm holds total market capital fixed by taking the
+        # facility's capital out of the dealers, which is the only arm that
+        # answers the objection that the treatment market is simply richer.
+        _arm = str(facility_arm or 'reserve')
+        _dealer_cash = 7e4
+        _arm_capital = float(arm_capital) if arm_capital and arm_capital > 0 else 0.0
+        if _arm == 'reallocation' and _arm_capital > 0:
+            _per_dealer = _arm_capital / max(1, n_mm)
+            if _per_dealer >= _dealer_cash:
+                raise ValueError(
+                    'reallocation needs the facility capital to be fundable by '
+                    f'the dealer sector: {_arm_capital} over {n_mm} dealers is '
+                    f'{_per_dealer} each against {_dealer_cash} available'
+                )
+            _dealer_cash = _dealer_cash - _per_dealer
+
+
         # CLOB wrapper: live or shadow
         if shadow_clob:
             clob = ShadowCLOB(env)
@@ -1281,6 +1292,16 @@ class Simulator:
         amm_pools: Dict[str, Any] = {}
         lp_providers: List = []
         arb = None
+
+        # Only the two reserve priced arms carry a pool. The order book arms
+        # put the same capital into an obliged quoter instead, which is the
+        # contrast that separates the schedule from standing availability.
+        if _arm not in ('reserve', 'reallocation'):
+            enable_amm = 0
+        if _arm_capital > 0 and _arm in ('reserve', 'reallocation'):
+            # Reserves are held half in each currency, so a budget of K in
+            # quote value is K/2 of quote and K/(2p) of base.
+            eff_hfmm_res = _arm_capital / (2.0 * max(price, 1e-9))
 
         if enable_amm:
             hfmm = HFMMPool(x=eff_hfmm_res,
@@ -1424,17 +1445,11 @@ class Simulator:
                 base_withdraw_prob=fast_lp_base_withdraw_prob,
                 stress_abstention=fast_lp_stress_abstention,
                 vol_multiple=fast_lp_vol_multiple))
-        for _ in range(eff_n_latent_lp):
-            book_agents.append(LatentLP(exchange, cash=2e4, env=env))
         for _ in range(n_clob_fund):
             book_agents.append(Fundamentalist(
                 exchange, cash=1e4, access=1, env=env,
                 observation_noise_multiple=clob_fund_observation_noise,
                 quote_offset_multiple=clob_fund_quote_offset))
-        for _ in range(n_clob_chart):
-            book_agents.append(Chartist(exchange, cash=1e4, env=env))
-        for _ in range(n_clob_univ):
-            book_agents.append(Universalist(exchange, cash=1e4, access=1, env=env))
         for agent in book_agents:
             _set_risk_limits(agent, cash_borrow=2.5e4, short_assets=75.0)
             _set_risk_policy(agent)
@@ -1445,12 +1460,27 @@ class Simulator:
             dealer_withdraw_threshold = max(
                 0.1, mm_withdraw_threshold + i * mm_withdraw_threshold_step
             )
+            # The most robust dealer is a core that does not step away. A linear
+            # ladder forces a choice between a sector that fails in grades and
+            # one that can fail entirely: a small step leaves every threshold
+            # reachable by a common displacement, so 7.5 per cent of crisis
+            # seeds evacuate the whole sector, and a step wide enough to prevent
+            # that also puts the middle of the ladder out of reach, collapsing
+            # the response to two levels. Placing one dealer above the ladder
+            # keeps the rest sensitive and makes a full evacuation impossible by
+            # construction. The largest dealers went on quoting the major pairs
+            # through March 2020, so a sector in which every member can be
+            # driven out is the wrong object.
+            if mm_core_threshold > 0.0 and i == n_mm - 1:
+                dealer_withdraw_threshold = float(mm_core_threshold)
             dealer_reentry_threshold = min(
                 dealer_withdraw_threshold,
                 mm_reentry_threshold + 0.55 * i * mm_withdraw_threshold_step,
             )
-            _mm = MarketMaker(exchange, cash=7e4, env=env,
+            _mm = MarketMaker(exchange, cash=_dealer_cash, env=env,
                               softlimit=mm_softlimit,
+                              client_flow_intensity=mm_client_flow_intensity,
+                              client_flow_persistence=mm_client_flow_persistence,
                               amm_pools=amm_pools,
                               alpha0=mm_alpha0_base + i * mm_alpha0_step,
                               alpha1=mm_alpha1, alpha2=mm_alpha2,
@@ -1484,6 +1514,91 @@ class Simulator:
                 mm = _mm
             else:
                 book_agents.append(_mm)
+
+        if _arm in ('dealer_of_last_resort', 'passive_book') and _arm_capital > 0:
+            # An obliged quoter holding the same capital as the pool and the
+            # same inventory capacity. It never steps away, which is the
+            # property being priced, and it prices off a single fixed spread
+            # so that nothing of the reserve schedule survives in it. The
+            # inventory limit matches the base reserve the pool would hold,
+            # since that is the position each can take before its own
+            # constraint binds.
+            _facility_limit = _arm_capital / (2.0 * max(price, 1e-9))
+            _levels = 1 if _arm == 'dealer_of_last_resort' else mm_n_levels
+            # The whole budget in quote currency and a flat position, because
+            # a dealer's neutral inventory in this model is zero: the position
+            # bounds are symmetric about it and three separate stress ratios
+            # read the position against the soft limit. Endowed instead with
+            # half its capital in base, the arm opened at 99.98 per cent of
+            # its own limit and read its own endowment as an exposure, the
+            # depth rule subtracting a tenth of it from a base depth of one
+            # hundred and twenty and flooring the quote at three units. The
+            # arm meant to hold the same capital as the pool displayed three
+            # thousandths of one per cent of it, and the more capital it was
+            # given the less it quoted.
+            # Half in each currency, as the pool holds it. An arm compared
+            # against a reserve priced pool has to carry the same exposure to
+            # the pair, or the contrast between them is the pricing schedule
+            # plus a currency position the pool has and it does not. Endowed
+            # all in cash it lost nothing on the base leg through a one per
+            # cent decline while the pool lost on all of it.
+            _facility = MarketMaker(
+                exchange, cash=_arm_capital / 2.0, env=env,
+                assets=int(_facility_limit),
+                softlimit=_facility_limit,
+                amm_pools={},
+                # A single spread on both sides, with no volatility, funding
+                # or inventory term, so the quote is the same in every state
+                # and the arm measures availability alone. The level is matched
+                # to what the reserve priced pool costs at the same capital,
+                # since an arm quoting far inside the pool would be compared on
+                # how tight it is instead of on how it prices. The pool's cost
+                # is convex in size, so the level is its round trip cost
+                # weighted by the realised distribution of customer trade
+                # sizes, and a match at one size alone is cheap at every other.
+                # Left at the dealer's own base term the quote would be 0.5
+                # basis points against a market of 0.9, and the arm would sit
+                # permanently at the touch: the calm spread fell to 0.61.
+                alpha0=arm_spread_bps, alpha1=0.0, alpha2=0.0, alpha3=0.0,
+                d0=mm_d0_base, d1=0.0, d2=0.0, d3=0.0, d_min=3.0,
+                n_levels=_levels, level_step_ticks=mm_level_step_ticks,
+                venue_interaction_mode='none',
+                # Obliged to quote throughout, which is what a backstop is.
+                withdrawal_threshold=1e9, reentry_threshold=0.0,
+                loss_threshold_bps=1e9,
+                quote_life=mm_quote_life,
+                # Repriced whenever the mid moves, as the pool's schedule is.
+                # The incumbent tolerance of twenty basis points froze the arm
+                # in a market whose spread is under one: its offer did not move
+                # for the last half of the window while the mid fell eleven
+                # basis points, so an arm declared at three and a half showed
+                # twenty three. The contrast then measured how often each arm
+                # repriced instead of how each one prices. The tolerance alone
+                # does this; shortening the quote life as well changes nothing
+                # and would churn the arm's place in the queue for no reason.
+                quote_refresh_tol_bps=0.0,
+                inv_skew_bps=0.0,
+                revenue_horizon=mm_revenue_horizon,
+                stale_touch_ratio=mm_stale_touch_ratio,
+                min_withdraw_ticks=mm_min_withdraw_ticks,
+                reentry_ticks=mm_reentry_ticks,
+                withdrawal_confirmation_ticks=mm_withdraw_confirmation_ticks)
+            # Neither line. The arm holds base to sell and quote to buy with,
+            # as the pool does, so it needs no credit to quote either side and
+            # the capital it commits is the capital it holds. A short line was
+            # needed only while the arm opened flat, and carried on top of a
+            # base endowment it granted capacity the pool does not have.
+            _set_risk_policy(_facility)
+            _facility.is_facility_arm = True
+            # The quote responds to its own position and to nothing else, as
+            # the pool's schedule responds to its own reserves and to nothing
+            # else. This is what makes the arm a test of standing availability
+            # instead of a test of a dealer that widens with the market.
+            _facility.state_independent_quote = True
+            # That endowment is the position it treats as flat, so every risk
+            # term reads a deviation from it and not the endowment itself.
+            _facility.set_inventory_reference(float(int(_facility_limit)))
+            book_agents.append(_facility)
 
         # ── Liquidity takers with venue routing ─────────────────────
         fx_traders: List = []
@@ -1597,7 +1712,7 @@ class Simulator:
             slippage_thresholds=[5, 10, 25, 50],
         )
 
-        # Full book-agent list for SimulatorInfo (Chartist / Universalist
+        # Full book-agent list (the retired trend and switching
         # need sentiment / strategy updates each iteration).
         all_book_agents = list(book_agents)
         if mm is not None:
@@ -1633,6 +1748,7 @@ class Simulator:
                 'bg_target_ratio_recovery': bg_target_ratio_recovery,
                 'toxic_flow_decay': toxic_flow_decay,
                 'liquidity_shock_decay': liquidity_shock_decay,
+                'stress_overlay_decay': stress_overlay_decay,
             },
         )
 
@@ -1642,132 +1758,3 @@ class Simulator:
         kwargs.setdefault('enable_amm', False)
         return cls.default_fx(**kwargs)
 
-
-class SimulatorInfo:
-    """
-    SimulatorInfo is responsible for capturing data during simulating
-    """
-
-    def __init__(self, exchange: ExchangeAgent = None, traders: list = None):
-        self.exchange = exchange
-        self.traders = {t.id: t for t in traders}
-
-        # Market Statistics
-        self.prices = list()  # price at the end of iteration
-        self.spreads = list()  # bid-ask spreads
-        self.dividends = list()  # dividend paid at each iteration
-        self.orders = list()  # order book statistics
-
-        # Agent statistics
-        self.equities = list()  # agent: equity
-        self.cash = list()  # agent: cash
-        self.assets = list()  # agent: number of assets
-        self.types = list()  # agent: current type
-        self.sentiments = list()  # agent: current sentiment
-        self.returns = [{tr_id: 0 for tr_id in self.traders.keys()}]  # agent: iteration return
-
-        """
-        # Market Statistics
-        self.prices = list()  # price at the end of iteration
-        self.spreads = list()  # bid-ask spreads
-        self.spread_sizes = list()  # bid-ask spread sizes
-        self.dividends = list()
-        self.orders_quantities = list()  # list -> (bid, ask)
-        self.orders_volumes = list()  # list -> (bid, ask) -> (sum, mean, q1, q3, std)
-        self.orders_prices = list()  # list -> (bid, ask) -> (mean, q1, q3, std)
-
-        # Agent Statistics
-        self.equity = list()  # sum of equity of agents
-        self.cash = list()  # sum of cash of agents
-        self.assets_qty = list()  # sum of number of assets of agents
-        self.assets_value = list()  # sum of value of assets of agents
-        """
-
-    def capture(self):
-        """
-        Method called at the end of each iteration to capture basic info on simulation.
-
-        **Attributes:**
-
-        *Market Statistics*
-
-        - :class:`list[float]` **prices** --> stock prices on each iteration
-        - :class:`list[dict]` **spreads** --> order book spreads on each iteration
-        - :class:`list[float]` **dividends** --> dividend paid on each iteration
-        - :class:`list[dict[dict]]` **orders** --> order book price, volume, quantity stats on each iteration
-
-        *Traders Statistics*
-
-        - :class:`list[dict]` **equities** --> each agent's equity on each iteration
-        - :class:`list[dict]` **cash** --> each agent's cash on each iteration
-        - :class:`list[dict]` **assets** --> each agent's number of stocks on each iteration
-        - :class:`list[dict]` **types** --> each agent's type on each iteration
-        """
-        # Market Statistics
-        self.prices.append(self.exchange.price())
-        self.spreads.append((self.exchange.spread()))
-        self.dividends.append(self.exchange.dividend())
-        self.orders.append({
-            'quantity': {'bid': len(self.exchange.order_book['bid']), 'ask': len(self.exchange.order_book['ask'])},
-            # 'price mean': {
-            #     'bid': mean([order.price for order in self.exchange.order_book['bid']]),
-            #     'ask': mean([order.price for order in self.exchange.order_book['ask']])},
-            # 'price std': {
-            #     'bid': std([order.price for order in self.exchange.order_book['bid']]),
-            #     'ask': std([order.price for order in self.exchange.order_book['ask']])},
-            # 'volume sum': {
-            #     'bid': sum([order.qty for order in self.exchange.order_book['bid']]),
-            #     'ask': sum([order.qty for order in self.exchange.order_book['ask']])},
-            # 'volume mean': {
-            #     'bid': mean([order.qty for order in self.exchange.order_book['bid']]),
-            #     'ask': mean([order.qty for order in self.exchange.order_book['ask']])},
-            # 'volume std': {
-            #     'bid': std([order.qty for order in self.exchange.order_book['bid']]),
-            #     'ask': std([order.qty for order in self.exchange.order_book['ask']])}
-        })
-
-        # Trader Statistics
-        self.equities.append({t_id: t.equity() for t_id, t in self.traders.items()})
-        self.cash.append({t_id: t.cash for t_id, t in self.traders.items()})
-        self.assets.append({t_id: t.assets for t_id, t in self.traders.items()})
-        self.types.append({t_id: t.type for t_id, t in self.traders.items()})
-        self.sentiments.append({t_id: t.sentiment for t_id, t in self.traders.items() if t.type == 'Chartist'})
-        self.returns.append({tr_id: (self.equities[-1][tr_id] - self.equities[-2][tr_id]) / self.equities[-2][tr_id]
-                             for tr_id in self.traders.keys()}) if len(self.equities) > 1 else None
-
-    def fundamental_value(self, access: int = 1) -> list:
-        divs = self.dividends.copy()
-        n = len(divs)  # number of iterations
-        divs.extend(self.exchange.dividend(access)[1:access])  # add not recorded future divs
-        r = self.exchange.risk_free
-
-        return [Fundamentalist.evaluate(divs[i:i+access], r) for i in range(n)]
-
-    def stock_returns(self, roll: int = None) -> List[float] | float:
-        p = self.prices
-        div = self.dividends
-        r = [(p[i+1] - p[i]) / p[i] + div[i] / p[i] for i in range(len(p) - 1)]
-        return rolling(r, roll) if roll else mean(r)
-
-    def abnormal_returns(self, roll: int = None) -> List[float]:
-        rf = self.exchange.risk_free
-        r = [r - rf for r in self.stock_returns()]
-        return rolling(r, roll) if roll else r
-
-    def return_volatility(self, window: int = None) -> List[float] | float:
-        if window is None:
-            return std(self.stock_returns())
-        n = len(self.stock_returns(1))
-        return [std(self.stock_returns(1)[i:i+window]) for i in range(n - window)]
-
-    def price_volatility(self, window: int = None) -> List[float] | float:
-        if window is None:
-            return std(self.prices)
-        return [std(self.prices[i:i+window]) for i in range(len(self.prices) - window)]
-
-    def liquidity(self, roll: int = None) -> List[float] | float:
-        n = len(self.prices)
-        spreads = [el['ask'] - el['bid'] for el in self.spreads]
-        prices = self.prices
-        liq = [spreads[i] / prices[i] for i in range(n)]
-        return rolling(liq, roll) if roll else mean(liq)

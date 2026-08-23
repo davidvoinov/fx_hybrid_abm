@@ -1,6 +1,6 @@
 {
   "model_name": "primary_fx_micromarket",
-  "version": "2026-08-11j",
+  "version": "2026-08-21a",
   "scope": "Scenario-aware calibration matrix for the single primary FX micromarket model.",
   "ingestion_method": "Semi-automated pypdf extraction plus hand-curated scale-matched proxies where the available literature is not directly in model units.",
   "calibration_scenarios": [
@@ -11,10 +11,10 @@
       "description": "Primary baseline without explicit exogenous shock."
     },
     {
-      "name": "dealer_liquidity_crisis",
-      "preset": "dealer_liquidity_crisis",
+      "name": "dash_for_cash_2020",
+      "preset": "dash_for_cash_2020",
       "n_iter": 1000,
-      "description": "Dealer-balance-sheet crisis used for withdrawal and resiliency targets."
+      "description": "Identified March 2020 episode, used for the withdrawal and price discovery targets. It replaces a synthetic dealer crisis preset whose script evacuated the entire dealer sector on every seed, which made the mechanism checks read an imposed outcome."
     },
     {
       "name": "funding_liquidity_shock",
@@ -32,7 +32,7 @@
         "https://www.cmegroup.com/news/2024/strengthening-fx-primary-liquidity-on-ebs.html",
         "https://arxiv.org/abs/1307.5440"
       ],
-      "market_scope": "EUR/USD on the primary interdealer venue, which for this pair is EBS. The model has no intraday session cycle, so it represents one homogeneous liquidity regime rather than an average over the day.",
+      "market_scope": "EUR/USD on the primary interdealer venue, which for this pair is EBS. The model has no intraday session cycle, so it represents one homogeneous liquidity regime and not an average over the day.",
       "statistic": "median quoted spread in normal conditions, in bps of the reference price; price-grid diagnostic",
       "parameter_mapping": [
         "fast_lp_base_spread_bps",
@@ -56,11 +56,11 @@
       "ingestion_note": "REVISED 2026-08-15. This median was formerly identical to one price tick at every grid tested, from two basis points down to nine hundredths, and the book sat on exactly one tick in about nine periods in ten, so it measured the grid and not the market. It is no longer degenerate: the median now stands at nine to thirteen ticks. The band is kept as a diagnostic with low confidence because no source publishes a median top-of-book spread for this venue."
     },
     {
-      "observable": "near_touch_depth",
+      "observable": "near_mid_depth_thin_side",
       "evaluation_scenario": "baseline_primary",
-      "source": "Lo_Hall_Resiliency_of_the_limit_order_book_Accepted_Manuscript.pdf",
-      "market_scope": "dealer-dominated limit-order-book depth at the best quotes",
-      "statistic": "one-sided touch depth at best bid/ask",
+      "source": "none identified",
+      "market_scope": "dealer intermediated limit order book depth around the mid",
+      "statistic": "smaller of the two sides of the book within twenty five basis points of the mid, averaged over the run",
       "parameter_mapping": [
         "mm_d0_base",
         "mm_d1",
@@ -75,8 +75,7 @@
       "units": "model base units",
       "confidence": "none",
       "match_type": "unidentified_diagnostic",
-      "source_excerpt": "Table 2 reports L1 bid volumes for large names such as 6.360, 5.654, 1.793 and 0.952 (x1000 shares).",
-      "ingestion_note": "REPORTED ONLY. The source is ASX equities with no designated market makers; there is no transparent conversion from its share counts into simulator base units. The realised model depth remains visible, but the former value 220 and its tolerance have been removed because they were not an externally identified FX/EBS target. A numerical acceptance band requires direct FX L1 notional depth or a scale conversion fixed before observing the simulation."
+      "ingestion_note": "REPORTED ONLY, AND RENAMED 2026-08-23. Three things were wrong with this record. It was called near_touch_depth and described as one sided depth at the best bid and ask, while the series behind it is the smaller side within twenty five basis points of the mid, a band of some twenty seven pips: the realised value near four hundred base units is that band and not the touch, which stands at single digits. It cited a study of ASX equities, a different asset class with no designated market makers, for a foreign exchange observable, and a reader of this matrix saw that citation beside an FX target. There is no published EBS depth statistic identified for it, so the source now says so. What is available is a scale: EBS Spot average daily notional of 55.8 billion dollars over 86,400 seconds against the model’s realised 0.456 base units per second puts one base unit near 1.3 million euro, which is close to the one million minimum trade size EBS enforces. On that scale the touch holds a few million euro, which is the right order for this venue. The quantity carries no band and no weight until a published depth statistic is identified for it."
     },
     {
       "observable": "order_flow_autocorrelation",
@@ -104,7 +103,7 @@
       "confidence": "medium",
       "match_type": "literature_constrained_proxy",
       "source_excerpt": "Table D.1 ... EUR/USD ... the statistics in column (ii) test for the presence of (residual) serial correlation in the price changes, order flow and bid-ask spread process.",
-      "ingestion_note": "Switched from raw CLOB-flow imbalance rho to signed non-zero CLOB flow rho. The new band enforces small-but-material positive serial dependence consistent with high-trading-density EUR/USD rather than the old 0.10 ± 0.10 convenience proxy."
+      "ingestion_note": "Switched from raw CLOB-flow imbalance rho to signed non-zero CLOB flow rho. The new band enforces small-but-material positive serial dependence consistent with high-trading-density EUR/USD and not the old 0.10 ± 0.10 convenience proxy."
     },
     {
       "observable": "order_flow_mean_run_length",
@@ -131,7 +130,7 @@
       },
       "confidence": "low",
       "match_type": "derived_diagnostic",
-      "source_excerpt": "Table D.1 documents non-zero EUR/USD order-flow serial dependence in high trading density windows, motivating short same-sign run clustering rather than iid flow signs.",
+      "source_excerpt": "Table D.1 documents non-zero EUR/USD order-flow serial dependence in high trading density windows, motivating short same-sign run clustering and not iid flow signs.",
       "ingestion_note": "Diagnostic only: this companion metric checks short parent-order clustering so the calibration does not rely exclusively on lag-1 autocorrelation. The band is a modest one and rules out both iid signs and unrealistically long toxic meta-order runs."
     },
     {
@@ -154,11 +153,11 @@
       "confidence": "none",
       "match_type": "unidentified_diagnostic",
       "source_excerpt": "The average magnitude of the significant c1 corresponding to a price impact roughly ranges from 20 to 72 basis points per $1 billion in the order flow.",
-      "ingestion_note": "REPORTED ONLY. The paper expresses impact per $1 billion, while the simulator statistic uses a model trade-size bucket with no predeclared notional conversion. The former 0.5 bps anchor has therefore been removed rather than retained as a zero-weight pseudo-target."
+      "ingestion_note": "REPORTED ONLY. The paper expresses impact per $1 billion, while the simulator statistic uses a model trade-size bucket with no predeclared notional conversion. The former 0.5 bps anchor has therefore been removed and not retained as a zero-weight pseudo-target."
     },
     {
       "observable": "dealer_withdrawal_share",
-      "evaluation_scenario": "dealer_liquidity_crisis",
+      "evaluation_scenario": "dash_for_cash_2020",
       "source": "bis.pdf",
       "market_scope": "dealer balance-sheet constrained stress episodes",
       "statistic": "share of dealers withdrawn during the shock window",
@@ -176,7 +175,7 @@
       "confidence": "none",
       "match_type": "unidentified_diagnostic",
       "source_excerpt": "At times when dealers' intermediation capacity is constrained the cost of liquidity provision increases disproportionately relative to dealer-intermediated volume.",
-      "ingestion_note": "REPORTED ONLY. The former 0.30 anchor was circular because it was re-anchored on earlier simulator output, while the BIS evidence establishes the economic direction but not a dealer-exit share for a comparable episode. The numerical target and tolerance have been removed. Identification is now through a separate 300-seed mechanism audit: low calm false-positive frequency, high crisis activation, wide separation of their confidence bounds, no scripted crisis pause, and no full dealer evacuation."
+      "ingestion_note": "REPORTED ONLY. The former 0.30 anchor was circular because it was re-anchored on earlier simulator output, while the BIS evidence establishes the economic direction but not a dealer-exit share for a comparable episode. The numerical target and tolerance have been removed. Identification is now through a separate 300-seed mechanism audit: low calm false-positive frequency, high crisis activation, wide separation of their confidence bounds, no scripted crisis pause, and no full dealer evacuation. Evaluated on the identified March 2020 episode from 21.08.2026. The synthetic dealer crisis preset it replaced evacuated the whole dealer sector on every seed, which is a scripted outcome and not an endogenous one."
     },
     {
       "observable": "funding_liquidity_stress_propagation",
@@ -232,7 +231,7 @@
       "confidence": "none",
       "match_type": "direct",
       "source_excerpt": "Our results show that (i) funding liquidity constraints measured by the availability of outstanding repos reduce FX market liquidity, and their impact is stronger when they are associated with an increase in the costs of funding and a shortening of their maturity",
-      "ingestion_note": "Demoted from a gate to a diagnostic on 16.08.2026 after its power was measured rather than assumed. The direction is established in the literature, but this model cannot fail the restriction. Setting mm_alpha2 to zero leaves the measured correlation at +0.80, and setting it to -200, ten times the calibrated magnitude with the opposite sign, still leaves it at +0.18 and passing. Funding stress in this scenario arrives together with higher volatility and a cancellation wave, and those channels widen the spread on their own, so the sign of the correlation carries no information about the funding coefficient. A gate that cannot fail does not belong in an acceptance set whose purpose is falsifiability. The magnitude remains reported as funding_liquidity_stress_propagation."
+      "ingestion_note": "Demoted from a gate to a diagnostic on 16.08.2026 after its power was measured and not assumed. The direction is established in the literature, but this model cannot fail the restriction. Setting mm_alpha2 to zero leaves the measured correlation at +0.80, and setting it to -200, ten times the calibrated magnitude with the opposite sign, still leaves it at +0.18 and passing. Funding stress in this scenario arrives together with higher volatility and a cancellation wave, and those channels widen the spread on their own, so the sign of the correlation carries no information about the funding coefficient. A gate that cannot fail does not belong in an acceptance set whose purpose is falsifiability. The magnitude remains reported as funding_liquidity_stress_propagation."
     },
     {
       "observable": "amm_volume_share",
@@ -433,11 +432,11 @@
       "confidence": "medium",
       "match_type": "direct_statistic_with_scope_limitation",
       "source_excerpt": "Despite a 64% surge in EUR/USD volatility, average top-of-book spreads on EBS Market rose by a modest 0.15 pip to 0.89 pip from 0.74 pip in 2024.",
-      "ingestion_note": "REVISED 2026-08-15. The previous anchor of 0.63 pips was a measurement taken around the introduction of quarter-pip increments in March 2024, which is the most favourable slice of that year rather than an average of it; the annual figures are 0.74 pips for 2024 and 0.89 for 2025. The 2025 figure is used, converted at a rate near 1.10, giving 0.81 bps. The absolute tolerance of 0.30 bps is wider than measurement error by choice because the venue statistic averages a whole trading day while the model has no intraday session cycle. The mapping has changed with the model: the realised spread is no longer a function of the price grid, so it is now set by the non-bank's base spread and by how tightly the dealer refreshes a quote the price has drifted onto, not by mm_alpha0_base."
+      "ingestion_note": "REVISED 2026-08-15. The previous anchor of 0.63 pips was a measurement taken around the introduction of quarter-pip increments in March 2024, which is the most favourable slice of that year and not an average of it; the annual figures are 0.74 pips for 2024 and 0.89 for 2025. The 2025 figure is used, converted at a rate near 1.10, giving 0.81 bps. The absolute tolerance of 0.30 bps is wider than measurement error by choice because the venue statistic averages a whole trading day while the model has no intraday session cycle. The mapping has changed with the model: the realised spread is no longer a function of the price grid, so it is now set by the non-bank's base spread and by how tightly the dealer refreshes a quote the price has drifted onto, not by mm_alpha0_base."
     },
     {
       "observable": "price_discovery_half_life_ticks",
-      "evaluation_scenario": "dealer_liquidity_crisis",
+      "evaluation_scenario": "dash_for_cash_2020",
       "source": "Chaboud, Chiquoine, Hjalmarsson and Vega, Rise of the Machines: Algorithmic Trading in the Foreign Exchange Market, Journal of Finance 69(5), 2014; Mancini, Ranaldo and Wrampelmeyer, Journal of Finance 68(5), 2013",
       "source_urls": [
         "https://doi.org/10.1111/jofi.12186",
@@ -461,7 +460,7 @@
       "confidence": "low",
       "match_type": "structural_requirement_with_qualitative_source",
       "source_excerpt": "Algorithmic traders ... contribute to price discovery in the major currency pairs on EBS.",
-      "ingestion_note": "ADDED 2026-08-15. This is a structural requirement, not a fitted statistic, and it is marked low confidence for that reason: no source publishes a half-life for the convergence of a quoted mid onto a latent value, and the literature cited supports the order of magnitude rather than the number. One model period is one second, and price discovery in the largest currency pair on its primary venue is a phenomenon of seconds. A band of thirty periods either side of thirty therefore admits anything that converges inside a minute and refuses anything that does not. It exists because the target set had no gate that could see a book disconnected from the fundamental. Measured before it was added, the model sat two hundred and eighty basis points away from the latent value a hundred periods after a three per cent repricing, closing thirteen per cent of the gap in three hundred periods, and passed every other acceptance target while doing so. The cause was that no participant in the book quoted off the fundamental: the book fundamentalists were set to zero and the price was carried by an anonymous scaffold with no owner. This target is what would have caught that, and it is what now disciplines the number of them."
+      "ingestion_note": "ADDED 2026-08-15. This is a structural requirement, not a fitted statistic, and it is marked low confidence for that reason: no source publishes a half-life for the convergence of a quoted mid onto a latent value, and the literature cited supports the order of magnitude and not the number. One model period is one second, and price discovery in the largest currency pair on its primary venue is a phenomenon of seconds. A band of thirty periods either side of thirty therefore admits anything that converges inside a minute and refuses anything that does not. It exists because the target set had no gate that could see a book disconnected from the fundamental. Measured before it was added, the model sat two hundred and eighty basis points away from the latent value a hundred periods after a three per cent repricing, closing thirteen per cent of the gap in three hundred periods, and passed every other acceptance target while doing so. The cause was that no participant in the book quoted off the fundamental: the book fundamentalists were set to zero and the price was carried by an anonymous scaffold with no owner. This target is what would have caught that, and it is what now disciplines the number of them. Evaluated on the identified March 2020 episode from 21.08.2026. The synthetic dealer crisis preset it replaced evacuated the whole dealer sector on every seed, which is a scripted outcome and not an endogenous one."
     }
   ],
   "withdrawn_targets": [
@@ -475,7 +474,7 @@
     {
       "observable": "recovery_half_life_ticks",
       "withdrawn": "2026-08-07",
-      "reason": "The target of twenty ticks existed only because the tick had no definition. It mapped a literature half life of one to three seconds onto twenty ticks through the assertion that a tick aggregates several book events, which was an assumption standing in for a missing time contract. The price process has since been anchored, so a tick has a length, but that is not on its own a time contract for the whole model, and the measured statistic is not the statistic the source estimates either. Lo and Hall estimate the decay of an initial impulse through a vector autoregression on an Australian equity book under aggressive order and cancellation shocks. The metric here takes half of the realised peak after a dealer balance sheet crisis and requires three stable observations. Neither the scenario nor the statistic matches, so the target has been removed rather than restated in new units. A micro resiliency test built to match the source, measured in seconds, belongs in its own experiment. The half life of the dealer crisis stays an internal diagnostic until a source exists for that regime.",
+      "reason": "The target of twenty ticks existed only because the tick had no definition. It mapped a literature half life of one to three seconds onto twenty ticks through the assertion that a tick aggregates several book events, which was an assumption standing in for a missing time contract. The price process has since been anchored, so a tick has a length, but that is not on its own a time contract for the whole model, and the measured statistic is not the statistic the source estimates either. Lo and Hall estimate the decay of an initial impulse through a vector autoregression on an Australian equity book under aggressive order and cancellation shocks. The metric here takes half of the realised peak after a dealer balance sheet crisis and requires three stable observations. Neither the scenario nor the statistic matches, so the target has been removed and not restated in new units. A micro resiliency test built to match the source, measured in seconds, belongs in its own experiment. The half life of the dealer crisis stays an internal diagnostic until a source exists for that regime.",
       "measured_before_withdrawal": "16, 3 and 7 ticks on three seeds, median 7"
     }
   ],
@@ -483,8 +482,8 @@
     {
       "version": "2026-08-07",
       "supersedes": "2026-04-27",
-      "change": "Two targets changed status after the tick was given a definition and the statistics behind them were compared with their sources. near_touch_depth was demoted to a diagnostic, gating false and objective weight zero, because it is a quantity rather than a duration, its source is an equity book with no designated market makers, and no conversion from a share count into simulator units was ever fixed. recovery_half_life_ticks was withdrawn outright, because its value of twenty ticks stood in for a missing time contract and the statistic measured here is not the statistic its source estimates. Neither change was made to improve a score. The suite passed its gates before and after, and the demoted target is reported and still fails.",
-      "note_on_prior_registration": "The design targets of the 2026-04-27 matrix were fixed in advance of the runs they judge. These two were changed afterwards and that is recorded here rather than presented as part of the original registration."
+      "change": "Two targets changed status after the tick was given a definition and the statistics behind them were compared with their sources. near_touch_depth was demoted to a diagnostic, gating false and objective weight zero, because it is a quantity and not a duration, its source is an equity book with no designated market makers, and no conversion from a share count into simulator units was ever fixed. recovery_half_life_ticks was withdrawn outright, because its value of twenty ticks stood in for a missing time contract and the statistic measured here is not the statistic its source estimates. Neither change was made to improve a score. The suite passed its gates before and after, and the demoted target is reported and still fails.",
+      "note_on_prior_registration": "The design targets of the 2026-04-27 matrix were fixed in advance of the runs they judge. These two were changed afterwards and that is recorded here and not presented as part of the original registration."
     },
     {
       "date": "2026-08-08",
@@ -514,7 +513,7 @@
     {
       "version": "2026-08-10d",
       "date": "2026-08-10",
-      "change": "The EBS spread gate was moved from the median to the mean so that the model statistic matches the average reported by CME. The median remains a zero-weight grid diagnostic. cross_venue_basis_bps was withdrawn because its cited JRFM paper studies returns of AMM protocol tokens rather than a CLOB-AMM price wedge. amm_volume_share and fx_amm_parameter_sanity were demoted to zero-weight diagnostics because their sources support only qualitative coexistence or aggregate FX turnover, not the numerical values used here.",
+      "change": "The EBS spread gate was moved from the median to the mean so that the model statistic matches the average reported by CME. The median remains a zero-weight grid diagnostic. cross_venue_basis_bps was withdrawn because its cited JRFM paper studies returns of AMM protocol tokens and not a CLOB-AMM price wedge. amm_volume_share and fx_amm_parameter_sanity were demoted to zero-weight diagnostics because their sources support only qualitative coexistence or aggregate FX turnover, not the numerical values used here.",
       "score_policy": "These changes follow source-statistic matching and were made without tuning model parameters to improve the acceptance score. The withdrawn and demoted observables remain reported where meaningful."
     },
     {

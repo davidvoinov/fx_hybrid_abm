@@ -15,7 +15,7 @@ population, so that availability becomes an outcome of the model.
 Ledger
 ------
 Holdings are recorded as liquidity provider tokens against a supply, in the
-way a deployed pool records them, rather than as a bare fraction. Writing
+way a deployed pool records them, and not as a bare fraction. Writing
 
     NAV      V_t = x_t p_t + y_t
     supply   T_t
@@ -45,7 +45,7 @@ Over one period, with reference price :math:`p_t` and reserves moving from
 
 where :math:`F_t` is fee revenue earned in the period. The loss term is the
 realised counterpart of loss versus rebalancing, measured against a hold and
-rebalance benchmark rather than assumed. Mints and burns are removed from the
+rebalance benchmark and not assumed. Mints and burns are removed from the
 comparison, so the payoff measures the investment result alone.
 
 Participation and the sponsor
@@ -189,7 +189,7 @@ class EndogenousLP:
                 self.last_exited_at = t
                 self.exit_count += 1
                 return -1.0
-            # The two terms are added rather than maximised.  Taking the
+            # The two terms are added and not maximised.  Taking the
             # larger of them pinned the denominator to ``response_scale``
             # whenever the outside option sat below it, which at the
             # calibrated values it does by a factor of about seven hundred.
@@ -265,7 +265,7 @@ class LPPopulation:
         # Purely numerical floor. The invariant solver is not defined at
         # vanishing reserves, so redemptions stop there. Tokens queued for
         # redemption stay with their owner instead of being written off, which
-        # is why the floor produces a delay rather than a loss.
+        # is why the floor produces a delay and not a loss.
         self.min_reserve_ratio = 0.01
         self.floor_binds = 0
 
@@ -361,7 +361,8 @@ class LPPopulation:
                         # simultaneous exit and entry must remain observable.
                         'entries_gross': [], 'reentries_gross': [],
                         'exits_gross': [], 'deployed': [],
-                        'deployed_share': [], 'entry_progress_max': []}
+                        'deployed_share': [], 'entry_progress_max': [],
+                        'wallet_value': []}
 
     # ---------------------------------------------------------------- helpers
     def _reference_price(self) -> float:
@@ -387,7 +388,7 @@ class LPPopulation:
     def _publish_closed(self):
         """Tell the pool whether it still has capital behind it.
 
-        The flag is recomputed every period rather than latched, so a pool that
+        The flag is recomputed every period and not latched, so a pool that
         is recapitalised starts quoting again.
         """
         try:
@@ -468,7 +469,7 @@ class LPPopulation:
         # a signal of ten per cent and drove providers straight back into a venue
         # that had just wound down. A closed pool is reported as earning nothing,
         # which is what it does, and re-entry is then decided by the outside
-        # option against the subsidy rather than by an artefact of the divisor.
+        # option against the subsidy and not by an artefact of the divisor.
         rho = self._rho_ewma if value > 1e-9 else 0.0
 
         # ---- fee income belongs to the providers ----
@@ -511,7 +512,7 @@ class LPPopulation:
         subsidy_cash = 0.0
         if self.total_supply > 1e-12:
             rate_subsidy_cash = max(0.0, self.subsidy_rate * value)
-            # A loss guarantee is state contingent rather than a continuously
+            # A loss guarantee is state contingent and not a continuously
             # paid return.  It reimburses only an actually realised negative
             # pool payoff, and the fraction is bounded by one so the policy
             # cannot turn a loss into a manufactured operating profit.
@@ -617,6 +618,14 @@ class LPPopulation:
         h['exits_gross'].append(exits_gross)
         h['deployed'].append(self.n_deployed)
         h['deployed_share'].append(self.deployed_share)
+        # Value the providers hold outside the pool, valued at the same
+        # reference price as the pool itself. Without it the share of
+        # committed capital sitting idle can only be read at the end of a
+        # run, which is the wrong point: by then a pool that closed has
+        # returned everything to the wallets and the share reads one.
+        h.setdefault('wallet_value', []).append(sum(
+            max(0.0, lp.wallet_cash) + max(0.0, lp.wallet_base) * p
+            for lp in self.providers))
         h['entry_progress_max'].append(max(
             (min(1.0, lp._above / max(1, lp.entry_patience))
              for lp in self.providers if not lp.active),
@@ -673,7 +682,7 @@ class LPPopulation:
             # There is no incumbent token price.  Providers transfer the two
             # assets they actually hold and receive one token per unit of
             # quote value.  Any numerical residual stays visible as a windfall
-            # rather than being silently converted into the missing leg.
+            # instead of being silently converted into the missing leg.
             x0, y0 = float(self.pool.x), float(self.pool.y)
             self.pool.x += base
             self.pool.y += quote
@@ -867,7 +876,7 @@ class LPPopulation:
         A reserve cannot go negative, so each side is capped. With a strongly
         tilted redemption on a lopsided pool the cap binds and less value
         leaves than was asked for. The amount actually removed is therefore
-        returned, and the caller burns tokens against that figure rather than
+        returned, and the caller burns tokens against that figure and not
         against the request. Paying out the request while the cap held back the
         reserves would hand the provider value the pool never released.
         """

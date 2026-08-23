@@ -222,7 +222,7 @@ class ExchangeAgent:
         order = Order(price, qty, side, None)
         if not hasattr(self, 'background_account'):
             # Some legacy tests construct an exchange via ``__new__``. Keep
-            # even those books conservative rather than silently returning to
+            # even those books conservative and not silently returning to
             # unaccounted fills.
             self.background_account = BackgroundLiquidityAccount()
         order.settlement_account = self.background_account
@@ -329,7 +329,7 @@ class ExchangeAgent:
                         and self.order_book['bid'].first.price >= self.order_book['ask'].first.price):
                     # Normal order entry matches crossing owned quotes, so this
                     # can only be caused by another in-place mutation.  Keep a
-                    # visible invariant counter rather than silently rewriting
+                    # visible invariant counter and not silently rewriting
                     # an owner's order to conceal it.
                     self.crossed_owned_book_events = getattr(
                         self, 'crossed_owned_book_events', 0
@@ -389,13 +389,13 @@ class ExchangeAgent:
                                aggressiveness: float = 1.0) -> float:
         """Price for one anonymous backstop order.
 
-        The offset opens at a fraction of the corridor rather than at one
+        The offset opens at a fraction of the corridor and not at one
         tick.  Anchoring it to the grid made this scaffold the tightest
         quote in the book: it took the best price whenever the book's own
         participants were anywhere but the minimum increment, and since the
         best price is a minimum over many draws it settled on the floor, so
         the realised spread of the whole market was the price grid plus a
-        thin tail rather than anything a participant decided.  Measured
+        thin tail instead of anything a participant decided.  Measured
         across grids from two basis points down to nine hundredths, the book
         sat at exactly one tick in about nine periods in ten.
 
@@ -469,7 +469,7 @@ class ExchangeAgent:
                 # The floor fades out as the book's own participants arrive.
                 # It used to survive at a fixed fraction of the target
                 # whatever they supplied, which made this scaffold a standing
-                # presence rather than a backstop: it held about half of the
+                # presence and not a backstop: it held about half of the
                 # best prices through a crisis and after it, while owning no
                 # capital, bearing no inventory limit and being unable to
                 # withdraw. It exists for a book that is empty, and an empty
@@ -2449,7 +2449,7 @@ class FastRecyclerLP(RestingQuoteProvider, Random):
         # silent about once every ten seconds in calm conditions, and with a
         # two tick order life that opened one sided gaps in the near book.
         # A non bank market maker on a primary venue refreshes continuously
-        # and manages risk by widening rather than by disappearing, so the
+        # and manages risk by widening and not by disappearing, so the
         # calm rate of abstention belongs at or near zero.
         #
         # The stress terms used to carry the retreat, and unbounded they
@@ -2460,7 +2460,7 @@ class FastRecyclerLP(RestingQuoteProvider, Random):
         # EBS a non bank's make:take moved only from 33:67 to 30:70 through a
         # stress event, a retreat of about a tenth of its making, while a
         # bank's moved from 55:45 to 70:30. The stress index therefore scales
-        # a small abstention rather than the whole quote set, and the risk it
+        # a small abstention and not the whole quote set, and the risk it
         # represents is charged in the width below, which is where a provider
         # that stays actually puts it.
         stress_index = min(1.0, 0.35 * toxic_bias + 0.25 * (1.0 - liquidity))
@@ -2577,119 +2577,6 @@ class FastRecyclerLP(RestingQuoteProvider, Random):
                 )
                 if self.market.limit_order(order) and order.qty > 0:
                     self.orders.append(order)
-
-        self.last_quoted = bool(self.orders)
-
-
-class LatentLP(RestingQuoteProvider, Random):
-    """Liquidity provider that enters only when spread/depth dislocate.
-
-    This class models latent liquidity that is not constantly displayed in
-    the book but appears when market making becomes attractive enough.
-    """
-
-    def __init__(self, market: ExchangeAgent, cash: Union[float, int], assets: int = 0,
-                 env: MarketEnvironment = None,
-                 entry_spread_bps: float = 8.0,
-                 top_depth_threshold: float = 8.0,
-                 ttl: int = 4,
-                 base_qty: int = 3,
-                 max_qty: int = 8,
-                 **kwargs):
-        super().__init__(market, cash, assets, env=env, label='LatentLP', **kwargs)
-        self.type = 'LatentLP'
-        self.entry_spread_bps = max(1.0, float(entry_spread_bps))
-        self.top_depth_threshold = max(1.0, float(top_depth_threshold))
-        self.ttl = max(1, int(ttl))
-        self.base_qty = max(1, int(base_qty))
-        self.max_qty = max(self.base_qty, int(max_qty))
-        self.last_quoted = False
-        # Same reason as in FastRecyclerLP: an independent refresh phase.
-        self._age = random.randint(0, max(0, int(ttl) - 1))
-        self._geometry = None
-        self._replenishments = 0
-        self.completed_order_lifetimes: List[float] = []
-
-    def call(self):
-        spread = self.market.spread()
-        top = self.market.spread_volume()
-        if spread is None or top is None:
-            self._cancel_all()
-            self.last_quoted = False
-            return
-
-        mid = 0.5 * (spread['bid'] + spread['ask'])
-        if mid <= 0:
-            self._cancel_all()
-            self.last_quoted = False
-            return
-
-        # Reserve liquidity that removes itself every period is not reserve
-        # liquidity. The standing quotes are left alone while they are near
-        # the mid and their life has not run out, so this class can actually
-        # be the backstop it is described as.
-        self._age = getattr(self, '_age', 0) + 1
-        if self._age < self.ttl and self._quotes_still_good(mid, 12.0):
-            self.last_quoted = True
-            return
-        self._age = 0
-        self._cancel_all()
-        self.last_quoted = False
-
-        spread_bps = (spread['ask'] - spread['bid']) / mid * 10_000.0
-        near_touch_depth = min(top['bid'], top['ask'])
-        liquidity = getattr(self.env, 'systemic_liquidity', 1.0) if self.env is not None else 1.0
-        toxic_bias = abs(getattr(self.env, 'toxic_flow_bias', 0.0)) if self.env is not None else 0.0
-        shock_ticks = getattr(self.env, 'shock_ticks_remaining', 0) if self.env is not None else 0
-
-        active = (
-            spread_bps >= self.entry_spread_bps
-            or near_touch_depth <= self.top_depth_threshold
-            or shock_ticks > 0
-        )
-        if not active:
-            return
-
-        entry_prob = 0.55 + 0.20 * min(1.0, max(0.0, (spread_bps - self.entry_spread_bps) / self.entry_spread_bps))
-        entry_prob += 0.15 * min(1.0, max(0.0, (self.top_depth_threshold - near_touch_depth) / self.top_depth_threshold))
-        entry_prob -= 0.30 * toxic_bias
-        entry_prob *= 0.75 + 0.25 * liquidity
-        if random.random() > max(0.05, min(0.95, entry_prob)):
-            return
-
-        fair_price = getattr(self.env, 'fair_price', None) if self.env is not None else None
-        if fair_price is not None and fair_price > 0:
-            mid = 0.75 * mid + 0.25 * fair_price
-
-        half_spread_bps = max(2.0, min(12.0, 0.35 * spread_bps))
-        tick = self.market._tick_size() if hasattr(self.market, '_tick_size') else 0.01
-        # Same floor, same reason. See the note in FastRecyclerLP.
-        half_spread = max(0.5 * tick, mid * half_spread_bps / 10_000.0)
-        depth_gap = max(0.0, self.top_depth_threshold - near_touch_depth)
-        qty = max(self.base_qty, int(round(self.base_qty + 0.75 * depth_gap)))
-        qty = min(self.max_qty, qty)
-        self._remember_geometry(half_spread, qty, 2, 0.75)
-
-        for level in range(2):
-            offset = half_spread * (1.0 + 0.75 * level)
-            bid_price = self.market.round_price(mid - offset) if hasattr(self.market, 'round_price') else round(mid - offset, 2)
-            ask_price = self.market.round_price(mid + offset) if hasattr(self.market, 'round_price') else round(mid + offset, 2)
-
-            if bid_price >= spread['ask']:
-                bid_price = self.market.round_price(spread['ask'] - tick) if hasattr(self.market, 'round_price') else round(spread['ask'] - tick, 2)
-            if ask_price <= spread['bid']:
-                ask_price = self.market.round_price(spread['bid'] + tick) if hasattr(self.market, 'round_price') else round(spread['bid'] + tick, 2)
-            if bid_price >= ask_price:
-                continue
-
-            bid_order = self._stamp_quote(Order(bid_price, qty, 'bid', self, ttl=self.ttl))
-            ask_order = self._stamp_quote(Order(ask_price, qty, 'ask', self, ttl=self.ttl))
-            bid_ok = self.market.limit_order(bid_order)
-            ask_ok = self.market.limit_order(ask_order)
-            if bid_ok and bid_order.qty > 0:
-                self.orders.append(bid_order)
-            if ask_ok and ask_order.qty > 0:
-                self.orders.append(ask_order)
 
         self.last_quoted = bool(self.orders)
 
@@ -2910,7 +2797,7 @@ class Fundamentalist(Trader):
             return max(tick, pf * self.quote_offset_multiple * sigma
                        + abs(random.gauss(0.0, tick)))
 
-        # Rounded onto the venue's own grid rather than to a tenth of a
+        # Rounded onto the venue's own grid and not to a tenth of a
         # price unit, which at this numeraire was a ten basis point sieve
         # and coarser than the spread being measured.
         ask_t = self.market.round_price(spread['ask'] * (1 + t_cost))
@@ -2935,182 +2822,6 @@ class Fundamentalist(Trader):
         else:
             if self.orders:
                 self._cancel_order(self.orders[0])
-
-
-class Chartist(Trader):
-    """
-    Chartist traders are searching for trends in the price movements. Each trader has sentiment - opinion
-    about future price movement (either increasing, or decreasing). Based on sentiment trader either
-    buys stock or sells. Sentiment revaluation happens at the end of each iteration based on opinion
-    propagation among other chartists, current price changes.
-    """
-    def __init__(self, market: ExchangeAgent, cash: Union[float, int], assets: int = 0, **kwargs):
-        """
-        :param market: exchange agent link
-        :param cash: number of cash
-        :param assets: number of assets
-        """
-        super().__init__(market, cash, assets, **kwargs)
-        self.type = 'Chartist'
-        self.sentiment = 'Optimistic' if random.random() > .5 else 'Pessimistic'
-
-    def call(self):
-        """
-        If 'steps' consecutive steps of upward (downward) price movements -> buy (sell) market order. If there are no
-        such trend, act as random trader placing only limit orders.
-        """
-        random_state = random.random()
-        t_cost = self.market.transaction_cost
-        spread = self.market.spread()
-        if spread is None:
-            return
-
-        if self.sentiment == 'Optimistic':
-            # Market order
-            if random_state > .85:
-                self._buy_market(Random.draw_quantity())
-            # Limit order
-            elif random_state > .5:
-                _sig = self.env.sigma if self.env else None
-                _sig_lo = self.env.sigma_low if self.env else None
-                self._buy_limit(Random.draw_quantity(), Random.draw_price('bid', spread, sigma=_sig, sigma_low=_sig_lo) * (1 - t_cost))
-            # Cancel order
-            elif random_state < .35:
-                if self.orders:
-                    self._cancel_order(self.orders[-1])
-        elif self.sentiment == 'Pessimistic':
-            # Market order
-            if random_state > .85:
-                self._sell_market(Random.draw_quantity())
-            # Limit order
-            elif random_state > .5:
-                _sig = self.env.sigma if self.env else None
-                _sig_lo = self.env.sigma_low if self.env else None
-                self._sell_limit(Random.draw_quantity(), Random.draw_price('ask', spread, sigma=_sig, sigma_low=_sig_lo) * (1 + t_cost))
-            # Cancel order
-            elif random_state < .35:
-                if self.orders:
-                    self._cancel_order(self.orders[-1])
-
-    def change_sentiment(self, info, a1=1, a2=1, v1=.1):
-        """
-        Change sentiment
-
-        :param info: SimulatorInfo
-        :param a1: importance of chartists opinion
-        :param a2: importance of current price changes
-        :param v1: frequency of revaluation of opinion for sentiment
-        """
-        n_traders = len(info.traders)  # number of all traders
-        n_chartists = sum([tr_type == 'Chartist' for tr_type in info.types[-1].values()])
-        n_optimistic = sum([tr_type == 'Optimistic' for tr_type in info.sentiments[-1].values()])
-        n_pessimists = sum([tr_type == 'Pessimistic' for tr_type in info.sentiments[-1].values()])
-
-        dp = info.prices[-1] - info.prices[-2] if len(info.prices) > 1 else 0  # price derivative
-        p = self.market.price()  # market price
-        x = (n_optimistic - n_pessimists) / n_chartists
-
-        U = a1 * x + a2 / v1 * dp / p
-        if self.sentiment == 'Optimistic':
-            prob = v1 * n_chartists / n_traders * exp(U)
-            if prob > random.random():
-                self.sentiment = 'Pessimistic'
-
-        elif self.sentiment == 'Pessimistic':
-            prob = v1 * n_chartists / n_traders * exp(-U)
-            if prob > random.random():
-                self.sentiment = 'Optimistic'
-
-        # print('sentiment', prob)
-
-
-class Universalist(Fundamentalist, Chartist):
-    """
-    Universalist mixes Fundamentalist, Chartist trading strategies, and allows to change from
-    one strategy to another.
-    """
-    def __init__(self, market: ExchangeAgent, cash: Union[float, int], assets: int = 0, access: int = 1, **kwargs):
-        """
-        :param market: exchange agent link
-        :param cash: number of cash
-        :param assets: number of assets
-        :param access: number of future dividends informed
-        """
-        super().__init__(market, cash, assets, access=access, **kwargs)
-        self.type = 'Chartist' if random.random() > .5 else 'Fundamentalist'  # randomly decide type
-        self.sentiment = 'Optimistic' if random.random() > .5 else 'Pessimistic'  # sentiment about trend (Chartist)
-        self.access = access  # next n dividend payments known (Fundamentalist)
-
-    def call(self):
-        """
-        Call one of parents' methods depending on what type it is currently set.
-        """
-        if self.type == 'Chartist':
-            Chartist.call(self)
-        elif self.type == 'Fundamentalist':
-            Fundamentalist.call(self)
-
-    def change_strategy(self, info, a1=1, a2=1, a3=1, v1=.1, v2=.1, s=.1):
-        """
-        Change strategy or sentiment
-
-        :param info: SimulatorInfo
-        :param a1: importance of chartists opinion
-        :param a2: importance of current price changes
-        :param a3: importance of fundamentalist profit
-        :param v1: frequency of revaluation of opinion for sentiment
-        :param v2: frequency of revaluation of opinion for strategy
-        :param s: importance of fundamental value opportunities
-        """
-        # Gather variables
-        n_traders = len(info.traders)  # number of all traders
-        n_fundamentalists = sum([tr.type == 'Fundamentalist' for tr in info.traders.values()])
-        n_optimistic = sum([tr.sentiment == 'Optimistic' for tr in info.traders.values() if tr.type == 'Chartist'])
-        n_pessimists = sum([tr.sentiment == 'Pessimistic' for tr in info.traders.values() if tr.type == 'Chartist'])
-
-        dp = info.prices[-1] - info.prices[-2] if len(info.prices) > 1 else 0  # price derivative
-        p = self.market.price()  # market price
-        # FX-aware fundamental anchor and "expected return" proxy. When an
-        # env.fair_price is configured, the Universalist evaluates being a
-        # Fundamentalist as the convergence return |pf - p|/p (the gain
-        # captured by closing the mispricing); otherwise falls back to the
-        # legacy dividend-DCF expected return for stock-market scenarios.
-        if self.env is not None and getattr(self.env, 'fair_price', None) is not None:
-            pf = float(self.env.fair_price)
-            r = abs(pf - p) / max(p, 1e-9)
-        else:
-            pf = self.evaluate(self.market.dividend(self.access), self.market.risk_free)
-            r = pf * self.market.risk_free
-        R = mean(info.returns[-1].values())  # average return in economy
-
-        # Change sentiment
-        if self.type == 'Chartist':
-            Chartist.change_sentiment(self, info, a1, a2, v1)
-
-        # Change strategy
-        U1 = max(-100, min(100, a3 * ((r + 1 / v2 * dp) / p - R - s * abs((pf - p) / p))))
-        U2 = max(-100, min(100, a3 * (R - (r + 1 / v2 * dp) / p - s * abs((pf - p) / p))))
-
-        if self.type == 'Chartist':
-            if self.sentiment == 'Optimistic':
-                prob = v2 * n_optimistic / (n_traders * exp(U1))
-                if prob > random.random():
-                    self.type = 'Fundamentalist'
-            elif self.sentiment == 'Pessimistic':
-                prob = v2 * n_pessimists / (n_traders * exp(U2))
-                if prob > random.random():
-                    self.type = 'Fundamentalist'
-
-        elif self.type == 'Fundamentalist':
-            prob = v2 * n_fundamentalists / (n_traders * exp(-U1))
-            if prob > random.random() and self.sentiment == 'Pessimistic':
-                self.type = 'Chartist'
-                self.sentiment = 'Optimistic'
-
-            prob = v2 * n_fundamentalists / (n_traders * exp(-U2))
-            if prob > random.random() and self.sentiment == 'Optimistic':
-                self.type = 'Chartist'
-                self.sentiment = 'Pessimistic'
 
 
 class MarketMaker(Trader):
@@ -3141,6 +2852,8 @@ class MarketMaker(Trader):
                  d_min: float = 3.0, n_levels: int = 5,
                  level_step_ticks: float = 2.0,
                  inv_skew_bps: float = 0.3,
+                 client_flow_intensity: float = 0.0,
+                 client_flow_persistence: float = 0.85,
                  venue_interaction_mode: str = 'competition',
                  amm_spread_impact_bps: float = 3.0,
                  amm_depth_impact: float = 60.0,
@@ -3152,12 +2865,12 @@ class MarketMaker(Trader):
                  # Median of an independent per-order cancellation clock, in
                  # one-second ticks.  It must not be implemented as a hard cap:
                  # doing so put most completed dealer orders at exactly 290 and
-                 # made the realised median an identity rather than an outcome.
+                 # made the realised median an identity and not an outcome.
                  quote_life: int = 290,
                  quote_refresh_tol_bps: float = 20.0,
                  revenue_horizon: int = 300,
                  # Fraction of the spread it would quote now, inside
-                 # which a resting quote is withdrawn rather than left
+                 # which a resting quote is withdrawn and not left
                  # to become the best price in the market.
                  stale_touch_ratio: float = 0.06,
                  loss_threshold_bps: float = 50.0,
@@ -3171,8 +2884,37 @@ class MarketMaker(Trader):
                          cost_noise_std=cost_noise_std)
         self.type = 'Market Maker'
         self.softlimit = softlimit
+        # Position this dealer treats as flat. Zero for an incumbent, which is
+        # what every risk term below assumed. A facility arm is endowed with
+        # half its capital in the base currency so that it carries the same
+        # exposure as the pool it is compared against, and without a reference
+        # that endowment reads as an exposure: the depth rule subtracted a
+        # tenth of it and the position opened at the soft limit.
+        # Most customer volume in spot FX is internalised bilaterally against a
+        # dealer's own client base, and only the residual reaches the
+        # interdealer book \citep{bis2025}. A dealer's position is therefore
+        # dominated by a franchise that is its own, while this model gave every
+        # dealer the same book to trade against. Measured over a thousand
+        # periods the pairwise correlation of dealer inventories was 0.65 on
+        # average and 0.95 at its highest, which is what brings the sector to
+        # its withdrawal thresholds together.
+        #
+        # Each dealer draws a private signed client flow with its own
+        # persistence and its own stream, so the franchises are independent.
+        # An intensity of zero reproduces the model without them.
+        self.client_flow_intensity = max(0.0, float(client_flow_intensity))
+        self.client_flow_persistence = min(0.99, max(0.0, float(client_flow_persistence)))
+        self._client_flow = 0.0
+        # Created on first use. Drawing the seed in the constructor would take
+        # a number from the global stream and shift every later draw in the
+        # model, so a franchise of zero intensity would not be the model
+        # without franchises.
+        self._client_rng = None
+
+        self.inventory_reference = 0.0
         self.ul = softlimit
         self.ll = -softlimit
+
         # Position a stood-down dealer is content to carry, and the most of
         # its limit it will show in one period while working out of the
         # rest. Both are fractions of its own limit, so neither carries a
@@ -3185,6 +2927,14 @@ class MarketMaker(Trader):
         self.unwind_rate = 0.05
         self.panic = False
         # Brunnermeier-Pedersen coefficients
+        # A facility arm quotes off its own position and knows nothing about
+        # market stress, which is what the reserve priced pool does: its price
+        # is a function of its reserves and of nothing else. Left on, the
+        # multiplicative liquidity loading below widened an arm declared to
+        # show a fixed spread of three and a half basis points to between nine
+        # and twelve, so an arm built to isolate standing availability was in
+        # fact a dealer that widened threefold in stress.
+        self.state_independent_quote = False
         self.alpha0 = alpha0
         self.alpha1 = alpha1
         self.alpha2 = alpha2
@@ -3308,7 +3058,7 @@ class MarketMaker(Trader):
         the book signal is the most reliable thing the dealer has).
 
         Cap reduced from 0.35 to 0.20 to keep dealer behaviour driven by
-        observable order-flow rather than the exogenous fair-price series.
+        observable order-flow and not the exogenous fair-price series.
         """
         book_mid = None
         if spread is not None:
@@ -3338,7 +3088,7 @@ class MarketMaker(Trader):
         # a damaged liquidity factor is in no position to lead a price. The
         # cap of a fifth is also kept: the latent value is not something a
         # dealer observes, and a dealer weighting it heavily is copying an
-        # oracle rather than intermediating. The book carries its own
+        # oracle instead of intermediating. The book carries its own
         # participants who price off the fundamental directly, and price
         # discovery is properly their work.
         liquidity_factor = self._liquidity_factor()
@@ -3452,7 +3202,7 @@ class MarketMaker(Trader):
         The systemic-liquidity factor enters multiplicatively below
         (paper supplement Eq. (10) with the ell-tilde modifier), not as
         an additive penalty, so a faded liquidity regime widens spreads
-        proportionally rather than tacking on a fixed bps penalty.
+        proportionally instead of tacking on a fixed bps penalty.
         """
         venue_state = self._venue_interaction_state(mid)
         effective_ofi = abs(self._recent_ofi()) * venue_state['ofi_scale']
@@ -3467,19 +3217,33 @@ class MarketMaker(Trader):
         # ell = 1 (calm) this is a no-op; at ell = 0.4 (deep stress)
         # spreads widen by ~50%. Bounded to avoid runaway widening.
         liquidity_factor = max(0.2, min(1.0, venue_state['liquidity_factor']))
-        base /= liquidity_factor
+        if not self.state_independent_quote:
+            base /= liquidity_factor
         return max(0.5, base)
 
     def _target_depth(self, mid: float) -> float:
         """Depth as f(σ, c, |OFI|, |inventory|), floored at d_min."""
         venue_state = self._venue_interaction_state(mid)
         effective_ofi = abs(self._recent_ofi()) * venue_state['ofi_scale']
-        inventory_penalty = 0.1 * abs(self.inventory) * venue_state['inventory_scale']
+        inventory_penalty = (0.1 * abs(self.risk_inventory)
+                             * venue_state['inventory_scale'])
         d = self.d0 - self.d1 * self.env.sigma - self.d2 * self.env.funding_cost
         d -= self.d3 * effective_ofi
         d -= inventory_penalty
-        d *= venue_state['liquidity_factor']
+        if not self.state_independent_quote:
+            d *= venue_state['liquidity_factor']
         return max(d, self.d_min)
+
+    def set_inventory_reference(self, reference: float) -> None:
+        """Declare the position this dealer treats as flat, and re-centre."""
+        self.inventory_reference = float(reference)
+        self.ul = self.inventory_reference + float(self.softlimit)
+        self.ll = self.inventory_reference - float(self.softlimit)
+
+    @property
+    def risk_inventory(self) -> float:
+        """Position measured from the one this dealer treats as flat."""
+        return float(self.assets) - float(getattr(self, 'inventory_reference', 0.0))
 
     @property
     def inventory(self) -> float:
@@ -3641,7 +3405,7 @@ class MarketMaker(Trader):
 
     def _inventory_skew(self, mid: float) -> float:
         """Skew mid-price away from inventory risk (bps → price offset)."""
-        return -self.inv_skew_bps * self.inventory * mid / 10_000.0
+        return -self.inv_skew_bps * self.risk_inventory * mid / 10_000.0
 
     def cancel_all_quotes(self, reason: Optional[str] = None):
         if reason is None:
@@ -3694,8 +3458,8 @@ class MarketMaker(Trader):
         # is updated on every fill via apply_fill; the legacy mm.inventory
         # field is kept in sync for backward compatibility but not used
         # for risk scoring.
-        inventory_abs = abs(float(self.assets))
-        # Normalised by the limit itself rather than by one and a half times
+        inventory_abs = abs(float(self.risk_inventory))
+        # Normalised by the limit itself and not by one and a half times
         # it. Kirilenko and co-authors describe a market maker that supplies
         # liquidity up to a level of inventory and then stands down, so the
         # term has to reach unity at the limit and not fifty per cent beyond
@@ -3732,7 +3496,7 @@ class MarketMaker(Trader):
         # weights had the two own book terms carrying under a tenth of the
         # threshold between them while exogenous stress indices and a shock
         # dummy carried the rest, so the dealer withdrew in response to the
-        # weather rather than to its own position.
+        # weather and not to its own position.
         # There is no shock-window dummy here, by design. A scenario may
         # move prices, funding or flow, but a dealer leaves only if those
         # events show up in its inventory/P&L or in observable current market
@@ -3883,7 +3647,7 @@ class MarketMaker(Trader):
         it would realise gets worse with every level and because the size
         beyond the touch is not on offer at the touch price.
         """
-        inventory = float(self.assets)
+        inventory = float(self.risk_inventory)
         limit = max(1.0, float(self.softlimit))
         excess = abs(inventory) - self.unwind_floor_ratio * limit
         if excess <= 0.0 or mid <= 0:
@@ -3904,7 +3668,7 @@ class MarketMaker(Trader):
                 shown += float(getattr(order, 'qty', 0.0) or 0.0)
         crossed = int(min(qty, shown))
         rested = qty - crossed
-        # The remainder joins the market rather than undercutting it. Resting
+        # The remainder joins the market instead of undercutting it. Resting
         # it one tick from the mid made a reduce-only order the best price in
         # the book, so a dealer that had stood down was setting the touch on
         # the minimum increment, and the crisis spread collapsed onto the
@@ -3951,9 +3715,34 @@ class MarketMaker(Trader):
 
         return {'can_quote': True, 'spread_mult': 1.0, 'depth_mult': 1.0}
 
+    def _absorb_client_flow(self) -> None:
+        """Take one period of the dealer's own internalised client flow.
+
+        The trade settles at the reference price and moves cash and inventory
+        together, so the franchise transfers a position to the dealer without
+        creating or destroying value.
+        """
+        if self.client_flow_intensity <= 0.0:
+            return
+        ref = getattr(self.env, 'fair_price', None) if self.env is not None else None
+        if ref is None or not _math.isfinite(ref) or ref <= 0:
+            return
+        if self._client_rng is None:
+            self._client_rng = random.Random(random.getrandbits(64))
+        shock = self._client_rng.gauss(0.0, 1.0)
+        self._client_flow = (self.client_flow_persistence * self._client_flow
+                             + (1.0 - self.client_flow_persistence) * shock)
+        qty = self.client_flow_intensity * self._client_flow
+        if abs(qty) < 1e-12:
+            return
+        # A client buying from the dealer leaves the dealer short.
+        self.assets -= qty
+        self.cash += qty * float(ref)
+
     def call(self):
         # ---------- multi-venue mode (σ/c-dependent MM) -------------------
         if self.env is not None:
+            self._absorb_client_flow()
             # Update OFI tracking
             self._update_ofi()
 
@@ -4022,9 +3811,10 @@ class MarketMaker(Trader):
 
             # Inventory-based one-sided thinning: reduce depth on the
             # overexposed side to encourage inventory mean-reversion
-            inv_ratio = min(1.0, abs(self.inventory) / max(1, self.softlimit))
-            bid_depth_frac = 1.0 - 0.5 * inv_ratio if self.inventory > 0 else 1.0
-            ask_depth_frac = 1.0 - 0.5 * inv_ratio if self.inventory < 0 else 1.0
+            deviation = self.risk_inventory
+            inv_ratio = min(1.0, abs(deviation) / max(1, self.softlimit))
+            bid_depth_frac = 1.0 - 0.5 * inv_ratio if deviation > 0 else 1.0
+            ask_depth_frac = 1.0 - 0.5 * inv_ratio if deviation < 0 else 1.0
 
             # Inverse pyramid: most depth at tight spread, tapering out
             weights = list(range(self.n_levels, 0, -1))
@@ -4068,7 +3858,7 @@ class MarketMaker(Trader):
                 # quote lands through the stale side. That happened on
                 # twelve per cent of calm periods and thirty five per cent
                 # of crisis periods, and on each of them the dealer was
-                # placed at the touch by the clamp rather than by any view
+                # placed at the touch by the clamp and not by any view
                 # of its own, so the quoted spread of the market in a crisis
                 # was set by an anti-crossing rule.
                 #
@@ -4192,7 +3982,7 @@ class AMMProvider:
                  # horizon on which such capital is actually reallocated. It
                  # does not bind at the calibrated scale, where the untruncated
                  # response is of the order of ten to the minus eight per
-                 # period, and that is worth knowing rather than hiding.
+                 # period, and that is worth knowing instead of hiding.
                  max_adj: float = 1.0 / 86400.0,
                  core_liquidity_ratio: float = 0.65,
                  wallet_cash: Optional[float] = None,
@@ -4319,7 +4109,7 @@ class AMMProvider:
         # measure carrying units of its own, the square root of the reserve
         # product for the constant product pool and the invariant for the
         # hybrid one. Restating the same market with a price of a hundred
-        # rather than one changed the constant product response to a fee by a
+        # and not one changed the constant product response to a fee by a
         # factor of twenty six and reversed its sign, so the mechanism was
         # reading the numeraire and not the economics.
         #
@@ -4458,7 +4248,7 @@ class AMMArbitrageur:
         return sum(mids) / len(mids)
 
     def _blend_with_fair(self, observed: Optional[float]) -> Optional[float]:
-        """Treat env.fair_price as a latent anchor rather than a command."""
+        """Treat env.fair_price as a latent anchor and not a command."""
         fair = None
         if self.env is not None:
             fair = self.env.fair_price
@@ -4530,7 +4320,7 @@ class AMMArbitrageur:
             return self._blend_with_fair(S_amm)
 
         # Healthy CLOB: anchor on CLOB. AMM gets zero weight in the target,
-        # so the arbitrageur pulls AMM mid back to CLOB rather than to a
+        # so the arbitrageur pulls AMM mid back to CLOB and not to a
         # blended midpoint that legitimises pool drift.
         if spread_bps <= self.max_spread_bps:
             return self._blend_with_fair(S_clob)
@@ -4686,7 +4476,7 @@ class AMMArbitrageur:
                 'reference_price': float(S_capped),
             })
 
-            # Re-peg the HFMM curve to the *external* reference rather than
+            # Re-peg the HFMM curve to the *external* reference and not
             # the pool's drifted mid. This keeps the StableSwap amplification
             # benefit anchored on the true equilibrium price (S_t) instead of
             # silently legitimising pool drift.

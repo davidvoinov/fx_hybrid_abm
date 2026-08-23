@@ -252,7 +252,7 @@ def test_unidentified_observables_are_reported_without_pass_fail_labels():
         if row.get('reported_only')
     }
     expected = {
-        'near_touch_depth',
+        'near_mid_depth_thin_side',
         'impact_curve',
         'dealer_withdrawal_share',
         'funding_liquidity_stress_propagation',

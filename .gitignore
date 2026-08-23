@@ -12,7 +12,7 @@ env/
 .ruff_cache/
 
 # Simulation output. Runs are reproducible from the calibrated manifest and
-# a seed, so results are regenerated rather than versioned.
+# a seed, so results are regenerated and not versioned.
 output/
 
 # Third-party source material kept locally for reference. These are other
@@ -23,7 +23,7 @@ literature/
 FRL/
 
 # The manuscript and its working notes. This repository carries the model, and
-# the paper is written beside it rather than inside it. The two checks that
+# the paper is written beside it and not inside it. The two checks that
 # compare a printed figure against a stored run skip when the article is not
 # present and run when it is.
 EconMod/

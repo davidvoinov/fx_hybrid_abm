@@ -411,6 +411,86 @@ REALISM_PRESETS = {
         toxic_flow_decay=0.90,
         liquidity_shock_decay=0.91,
     ),
+    # ── Identified episodes, EUR/USD ────────────────────────────────
+    # Severity on each is set so that impaired dealer capacity lands between
+    # roughly one half and nine tenths over the crisis window. Below one half
+    # the contagion channel of BIS WP 1138 does not engage at all, and at one
+    # the sector is evacuated by the script before any feedback acts, which
+    # leaves the channel nothing to amplify and fails the acceptance check that
+    # forbids a path evacuating every dealer.
+    "dash_for_cash_2020": dict(
+        shock_iter=350,
+        shock_mode="realism",
+        clob_amm_interaction="competition",
+        # March 2020, in character and not in matched time. A run is a
+        # thousand seconds and this stress persists for hundreds, while the
+        # episode itself unfolded over weeks: what is taken from it is the
+        # composition of the shock and the order of the responses, so that
+        # the stress and the dealer reaction overlap as they did then.
+        # The defining feature for a major pair was an acute dollar
+        # funding squeeze against binding dealer balance sheets, with the spot
+        # rate itself moving far less than funding conditions did, so funding
+        # carries the episode and the fundamental displacement is modest.
+        fundamental_shock_pct=-1.2,
+        order_flow_shock_qty=190.0,
+        order_flow_shock_side="sell",
+        liquidity_shock_frac=0.55,
+        funding_vol_shock_intensity=1.00,
+        force_mm_pause=False,
+        arb_trade_fraction_cap=0.05,
+        # The episode ran for weeks, so its stress has to outlast the time a
+        # dealer takes to act on it. At the decay the synthetic presets carry,
+        # a half life of about 13 seconds, the stress is gone before the sector
+        # responds: measured on the crisis window, impaired capacity rises past
+        # its threshold only after friction has fallen to 0.064, so anything
+        # keyed on capacity has nothing left to work on. At a half life near
+        # 230 seconds the two overlap and friction while capacity is impaired
+        # is 0.718.
+        reprice_prob_recovery=0.015,
+        anchor_strength_recovery=0.008,
+        bg_target_ratio_recovery=0.025,
+        toxic_flow_decay=0.996,
+        liquidity_shock_decay=0.997,
+        # The volatility and funding cost limb, on the same clock as the two
+        # above. Left undeclared it ran at an eleven second half life while
+        # they ran at hundreds, so anything keyed on volatility saw a spike
+        # where the episode has a plateau.
+        stress_overlay_decay=0.997,
+        mm_withdraw_threshold=0.70,
+        mm_reentry_threshold=0.40,
+        mm_withdraw_confirmation_ticks=2,
+    ),
+    "dealer_capacity_contagion": dict(
+        shock_iter=350,
+        shock_mode="realism",
+        clob_amm_interaction="competition",
+        # The displacement is small by design and the dislocation is meant to
+        # come from the capacity channel, so this scenario is informative only
+        # against the same run with the cascade gain set to zero.
+        fundamental_shock_pct=-1.0,
+        order_flow_shock_qty=150.0,
+        order_flow_shock_side="sell",
+        liquidity_shock_frac=0.42,
+        funding_vol_shock_intensity=0.50,
+        force_mm_pause=False,
+        arb_trade_fraction_cap=0.06,
+        # Stress outlasts the dealer reaction here for the same reason it does
+        # in the episode above, since a channel keyed on dealer capacity is
+        # inert wherever the two do not overlap.
+        reprice_prob_recovery=0.030,
+        anchor_strength_recovery=0.015,
+        bg_target_ratio_recovery=0.050,
+        toxic_flow_decay=0.996,
+        liquidity_shock_decay=0.997,
+        # The volatility and funding cost limb, on the same clock as the two
+        # above. Left undeclared it ran at an eleven second half life while
+        # they ran at hundreds, so anything keyed on volatility saw a spike
+        # where the episode has a plateau.
+        stress_overlay_decay=0.997,
+        mm_withdraw_threshold=0.70,
+        mm_reentry_threshold=0.40,
+        mm_withdraw_confirmation_ticks=2,
+    ),
     "high_vol_stress": dict(
         shock_mode="realism",
         clob_amm_interaction="none",
@@ -525,8 +605,11 @@ def _rolling_normalization_time(series, *, shock_iter: int,
                                 abs_tol: float = 0.0,
                                 window: int = 5,
                                 horizon: int = 100):
+    # Both callers unpack a pair, so an unmeasurable baseline has to return
+    # one too. Returning a bare nan here raised a TypeError at the call site
+    # instead of reporting that the quantity could not be measured.
     if not math.isfinite(baseline):
-        return float('nan')
+        return float('nan'), float('nan')
 
     values = pd.Series(
         [x if math.isfinite(x) else np.nan for x in series],
@@ -900,10 +983,7 @@ def build_parser(default_venue_choice_rule: str = "liquidity_aware") -> argparse
         "Traders that populate the central limit order book.\n"
         "  Noise traders place random limit/market/cancel orders.\n"
         "  FastRecyclerLP recycle short-lived near-mid liquidity.\n"
-        "  LatentLP appear when spread/depth dislocate after stress.\n"
         "  Fundamentalist place DCF-based limit orders.\n"
-        "  Chartist trade on sentiment (trend-following).\n"
-        "  Universalist switch between Fund & Chart strategies.\n"
         "  Market Maker quotes both sides with σ/c-dependent spread."
     )
     g.add_argument("--n-noise", type=int, default=12,
@@ -912,8 +992,6 @@ def build_parser(default_venue_choice_rule: str = "liquidity_aware") -> argparse
                    help="Number of CLOB Market Makers (default: 5, 0=off)")
     g.add_argument("--n-fast-lp", type=int, default=10,
                    help="Fast replenishing LPs on the CLOB (default: 10)")
-    g.add_argument("--n-latent-lp", type=int, default=6,
-                   help="Latent/liquidity-backstop LPs on the CLOB (default: 6)")
     g.add_argument("--n-clob-fund", type=int, default=2,
                    help="Fundamentalist book agents on CLOB (default: 2)")
     g.add_argument("--clob-fund-observation-noise", type=float,
@@ -926,10 +1004,6 @@ def build_parser(default_venue_choice_rule: str = "liquidity_aware") -> argparse
                    help="How far a book fundamentalist rests from its own "
                         "reading, as a multiple of the price volatility of "
                         "one period, floored at one tick")
-    g.add_argument("--n-clob-chart", type=int, default=1,
-                   help="Chartist book agents on CLOB (default: 1)")
-    g.add_argument("--n-clob-univ", type=int, default=1,
-                   help="Universalist book agents on CLOB (default: 1)")
     g.add_argument("--enable-clob-mm", type=int, choices=[0, 1], default=1,
                    help="Enable CLOB Market Maker: 1=yes, 0=no (default: 1)")
     g.add_argument("--clob-std", type=float, default=2.0,
@@ -1061,7 +1135,7 @@ def build_parser(default_venue_choice_rule: str = "liquidity_aware") -> argparse
     g = p.add_argument_group(
         "Liquidity levels",
         "Global multipliers that scale depth on each side.\n"
-        "  clob-liq × → n_noise, n_fast_lp, n_latent_lp, clob_volume, MM depth.\n"
+        "  clob-liq × → n_noise, n_fast_lp, clob_volume, MM depth.\n"
         "  amm-liq  × → CPMM / HFMM reserves."
     )
     g.add_argument("--clob-liq", type=float, default=1.0,
@@ -1076,6 +1150,48 @@ def build_parser(default_venue_choice_rule: str = "liquidity_aware") -> argparse
     g.add_argument("--fast-lp-base-withdraw-prob", type=float,
                    default=float(calibrated_default('fast_lp_base_withdraw_prob', 0.10)),
                    help="Probability that the fast automated provider does not quote at all in a period when conditions are calm")
+    g.add_argument("--facility-arm",
+                   choices=['reserve', 'dealer_of_last_resort',
+                            'passive_book', 'reallocation', 'none'],
+                   default='reserve', dest="facility_arm",
+                   help="Which arm of the resource matched comparison to run. "
+                        "Every arm carries the same committed capital and the "
+                        "same inventory capacity and differs only in how it "
+                        "prices. reallocation funds the facility out of the "
+                        "dealer sector, holding total market capital fixed.")
+    g.add_argument("--arm-spread-bps", type=float, default=3.469,
+                   dest="arm_spread_bps",
+                   help="Fixed bid ask spread the obliged quoter shows, in "
+                        "basis points, matched to the round trip cost of the "
+                        "reserve priced pool weighted by the realised "
+                        "distribution of customer trade sizes. The former "
+                        "default of 12 was matched to a five basis point fee "
+                        "the calibration no longer carries.")
+    g.add_argument("--arm-capital", type=float, default=0.0,
+                   dest="arm_capital",
+                   help="Committed capital of the facility in quote units, "
+                        "shared by every arm. Zero leaves each arm at its own "
+                        "natural size, which is not a matched comparison.")
+    g.add_argument("--mm-core-threshold", type=float,
+                   default=float(calibrated_default('mm_core_threshold', 0.0)),
+                   dest="mm_core_threshold",
+                   help="Withdrawal threshold of the most robust dealer, which "
+                        "sits above the ladder the others occupy and makes a "
+                        "full evacuation of the sector impossible. Zero leaves "
+                        "the ladder linear.")
+    g.add_argument("--mm-client-flow-intensity", type=float,
+                   default=float(calibrated_default('mm_client_flow_intensity', 0.0)),
+                   dest="mm_client_flow_intensity",
+                   help="Size of the private client flow each dealer internalises "
+                        "per period. Most customer volume in spot FX is "
+                        "internalised bilaterally and only the residual reaches "
+                        "the interdealer book, so a dealer's position comes "
+                        "mainly from a franchise that is its own. Zero removes "
+                        "the franchise.")
+    g.add_argument("--mm-client-flow-persistence", type=float,
+                   default=float(calibrated_default('mm_client_flow_persistence', 0.85)),
+                   dest="mm_client_flow_persistence",
+                   help="Persistence of a dealer's own client flow.")
     g.add_argument("--mm-softlimit", type=float,
                    default=float(calibrated_default('mm_softlimit', 100.0)),
                    dest="mm_softlimit",
@@ -1364,12 +1480,9 @@ def build_sim(args: argparse.Namespace) -> Simulator:
         n_noise=args.n_noise,
         n_mm=args.n_mm if args.enable_clob_mm else 0,
         n_fast_lp=args.n_fast_lp,
-        n_latent_lp=args.n_latent_lp,
         n_clob_fund=args.n_clob_fund,
         clob_fund_observation_noise=args.clob_fund_observation_noise,
         clob_fund_quote_offset=args.clob_fund_quote_offset,
-        n_clob_chart=args.n_clob_chart,
-        n_clob_univ=args.n_clob_univ,
         n_fx_takers=args.n_fx_takers,
         n_fx_fund=args.n_fx_fund,
         n_retail=args.n_retail,
@@ -1419,6 +1532,12 @@ def build_sim(args: argparse.Namespace) -> Simulator:
         fast_lp_stress_abstention=args.fast_lp_stress_abstention,
         fast_lp_vol_multiple=args.fast_lp_vol_multiple,
         mm_softlimit=args.mm_softlimit,
+        mm_client_flow_intensity=args.mm_client_flow_intensity,
+        mm_core_threshold=args.mm_core_threshold,
+        facility_arm=args.facility_arm,
+        arm_capital=args.arm_capital,
+        arm_spread_bps=args.arm_spread_bps,
+        mm_client_flow_persistence=args.mm_client_flow_persistence,
         dealer_cascade_gain=args.dealer_cascade_gain,
         dealer_capacity_threshold=args.dealer_capacity_threshold,
         mm_min_withdraw_ticks=args.mm_min_withdraw_ticks,
@@ -1495,6 +1614,7 @@ def build_sim(args: argparse.Namespace) -> Simulator:
         bg_target_ratio_recovery=getattr(args, 'bg_target_ratio_recovery', None),
         toxic_flow_decay=getattr(args, 'toxic_flow_decay', None),
         liquidity_shock_decay=getattr(args, 'liquidity_shock_decay', None),
+        stress_overlay_decay=getattr(args, 'stress_overlay_decay', None),
     )
 
 
@@ -1528,10 +1648,7 @@ def print_config(args: argparse.Namespace):
     row("Noise traders", str(args.n_noise))
     row("Market Makers", str(eff_mm))
     row("FastRecyclerLP", str(args.n_fast_lp))
-    row("LatentLP", str(args.n_latent_lp))
     row("Fundamentalists (book)", str(args.n_clob_fund))
-    row("Chartists (book)", str(args.n_clob_chart))
-    row("Universalists (book)", str(args.n_clob_univ))
     row("CLOB mode", "Shadow (synthetic)" if shadow else "Live order-book")
     row("Order-book volume", str(args.clob_volume))
     row("Price std", f"{args.clob_std:.1f}")
@@ -2042,7 +2159,7 @@ def print_summary(sim: Simulator, acceptance_report: Optional[dict] = None):
     print("=" * W + "\n")
 
 
-def generate_all_plots(sim: Simulator, logger_no_amm=None,
+def generate_all_plots(sim: Simulator,
                        out_dir: str = 'output/main_aware'):
     import glob as _glob
     logger = sim.logger
@@ -2060,7 +2177,6 @@ def generate_all_plots(sim: Simulator, logger_no_amm=None,
         stress_start=stress_start,
         Q=5,
         rolling=10,
-        logger_no_amm=logger_no_amm,
         shock_iter=shock_iter,
     )
     save_all_individual_plots(
@@ -2069,7 +2185,6 @@ def generate_all_plots(sim: Simulator, logger_no_amm=None,
         stress_start=stress_start,
         Q=5,
         rolling=10,
-        logger_no_amm=logger_no_amm,
         shock_iter=shock_iter,
     )
 
@@ -2497,28 +2612,15 @@ def _run_main(argv: Optional[list[str]] = None):
     if args.robustness_check:
         print_robustness_summary(args)
 
-    logger_no_amm = None
-    if args.comparison and bool(args.enable_amm):
-        print('\nRunning counterfactual simulation WITHOUT AMM ...')
-        # Re-seed for identical GBM trajectory
-        if args.seed is not None:
-            _seed_all(args.seed)
-        else:
-            print('  ⚠ WARNING: no --seed; counterfactual trajectory differs.')
-            print('    Set --seed N for valid A/B comparison.')
-        args_no = argparse.Namespace(**vars(args))
-        args_no.enable_amm = 0
-        args_no.amm_share_pct = 0
-        sim_no = build_sim(args_no)
-        sim_no.simulate(args.n_iter, silent=args.silent)
-        logger_no_amm = sim_no.logger
-        print('Counterfactual done.\n')
-
+    # The counterfactual is not a switch on this run. Adding a facility moves
+    # committed capital, the obligation to keep quoting and the pricing rule
+    # at once, and a comparison against the same market without it pools the
+    # three. The resource matched arms of ``arms`` separate them, and that is
+    # the sanctioned comparison.
     if not args.no_plots:
-        generate_all_plots(sim, logger_no_amm=logger_no_amm,
-                           out_dir=plot_out_dir)
+        generate_all_plots(sim, out_dir=plot_out_dir)
 
-    if args.spillover_artifacts:
+    if args.spillover_artifacts and not args.no_plots:
         save_spillover_artifacts(
             sim,
             out_dir=plot_out_dir,
@@ -2529,9 +2631,83 @@ def _run_main(argv: Optional[list[str]] = None):
     save_primary_model_artifacts(args, plot_out_dir, acceptance_report=acceptance_report)
 
 
-def main():
-    _run_main()
+COMMANDS = {
+    'run': 'one simulation of a scenario, with its summary and plots',
+    'accept': 'the acceptance panel against the frozen target matrix',
+    'arms': 'the resource matched comparison of the facility arms',
+    'welfare': 'the welfare account for one arm against the dealer only control',
+    'selection': 'the markout of the flow each venue fills, calm against crisis',
+    'calibrate': 'the coordinate search over the declared parameters',
+    'config': 'the calibrated configuration and where each value came from',
+}
+
+
+def _usage() -> str:
+    width = max(len(name) for name in COMMANDS)
+    lines = [f'  {name.ljust(width)}  {text}' for name, text in COMMANDS.items()]
+    return ('usage: python -m main <command> [options]\n\n'
+            'The model is configured by calibration/primary_model.json, which is\n'
+            'the single source of every default below. A command takes the options\n'
+            'of the runner it names; pass --help after the command to see them.\n\n'
+            + '\n'.join(lines) + '\n')
+
+
+def main(argv: Optional[list[str]] = None) -> int:
+    """Dispatch to the workflow named by the first argument.
+
+    The entry point used to be one run with a hundred and sixty switches and a
+    built in comparison against the same market without a facility. Both the
+    calibration and the comparison are now separate runners with their own
+    seed commitments and their own provenance, so the entry point names them
+    instead of reimplementing them.
+    """
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if not argv or argv[0] in ('-h', '--help', 'help'):
+        print(_usage())
+        return 0
+    command, rest = argv[0], argv[1:]
+    if command not in COMMANDS:
+        print(f'unknown command: {command}\n', file=sys.stderr)
+        print(_usage(), file=sys.stderr)
+        return 2
+
+    if command == 'run':
+        _run_main(rest)
+        return 0
+    if command == 'config':
+        parser = build_parser()
+        args = parser.parse_args(rest)
+        _apply_preset_defaults(parser, args)
+        args.venue_choice_rule = _resolve_main_routing(args, rest)
+        print_config(args)
+        return 0
+    def _delegate(entry, name, extra=()):
+        """Run a module entry point that reads sys.argv, with our arguments."""
+        saved, sys.argv = sys.argv, [name] + list(extra) + rest
+        try:
+            return int(entry() or 0)
+        finally:
+            sys.argv = saved
+
+    if command == 'accept':
+        from calibration.runner import main as run_panel
+        # The panel evaluates the current defaults; the search is `calibrate`.
+        extra = () if '--current-only' in rest else ('--current-only',)
+        return _delegate(run_panel, 'calibration.runner', extra)
+    if command == 'calibrate':
+        from calibration.runner import main as run_search
+        return _delegate(run_search, 'calibration.runner')
+    if command == 'welfare':
+        from tools.robustness.welfare_accounting import main as run_welfare
+        return _delegate(run_welfare, 'welfare_accounting')
+    if command == 'arms':
+        from tools.robustness.facility_arms import main as run_arms
+        return int(run_arms(rest) or 0)
+    if command == 'selection':
+        from tools.robustness.flow_selection import main as run_selection
+        return int(run_selection(rest) or 0)
+    return 2
 
 
 if __name__ == '__main__':
-    main()
+    raise SystemExit(main())

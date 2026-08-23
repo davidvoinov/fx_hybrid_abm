@@ -35,8 +35,11 @@ PAPER_PALETTE: Sequence[str] = (
 )
 
 # Semantic colors that survive grayscale printing.
-COLOR_WITH_AMM = PAPER_PALETTE[0]   # near-black, the hero series
-COLOR_NO_AMM = PAPER_PALETTE[1]     # mid gray, the baseline
+# The series under study and the control it is read against. These were
+# named for a comparison of a market with a facility against the same
+# market without one, which the resource matched arms replaced.
+COLOR_TREATMENT = PAPER_PALETTE[0]  # near-black, the series under study
+COLOR_CONTROL = PAPER_PALETTE[1]    # mid gray, the control
 COLOR_GOOD = '#2f6b4f'              # muted green (improvement)
 COLOR_BAD = '#8c3b2f'               # muted brick (degradation)
 COLOR_NEUTRAL = PAPER_PALETTE[2]

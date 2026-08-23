@@ -376,7 +376,7 @@ class CPMMPool:
     # each flow is recorded here and netted out downstream.
 
     # A pool whose providers have all redeemed holds no capital and must not
-    # attract flow. Marking the pool itself, rather than teaching every routing
+    # attract flow. Marking the pool itself, instead of teaching every routing
     # site about the provider population, means quoting, depth and trade size
     # classification all inherit the state without further changes.
     closed = False
@@ -405,7 +405,7 @@ class CPMMPool:
         """Hand the accrued fee balances over and reset them.
 
         Returns the base and quote amounts owed. The cumulative counter is
-        left alone, because it is telemetry rather than a balance and every
+        left alone, because it is telemetry and not a balance and every
         reader of its history expects it to rise monotonically.
         """
         b, q = self.fee_base, self.fee_quote
@@ -782,7 +782,7 @@ class HFMMPool:
         reserves, sqrt(x_n · y_n) / rate, and with x_n = x·rate that is exactly
         sqrt(x·y / rate), which is dimensionally right. It was then changed to
         match the constant product pool, whose own formula was the one at
-        fault, and the change deflated the measure by sqrt(price) rather than
+        fault, and the change deflated the measure by sqrt(price) and not
         correcting an inflation. Both are now written in the correct form.
         """
         if getattr(self, "closed", False):
@@ -943,7 +943,7 @@ class HFMMPool:
     # each flow is recorded here and netted out downstream.
 
     # A pool whose providers have all redeemed holds no capital and must not
-    # attract flow. Marking the pool itself, rather than teaching every routing
+    # attract flow. Marking the pool itself, instead of teaching every routing
     # site about the provider population, means quoting, depth and trade size
     # classification all inherit the state without further changes.
     closed = False
@@ -972,7 +972,7 @@ class HFMMPool:
         """Hand the accrued fee balances over and reset them.
 
         Returns the base and quote amounts owed. The cumulative counter is
-        left alone, because it is telemetry rather than a balance and every
+        left alone, because it is telemetry and not a balance and every
         reader of its history expects it to rise monotonically.
         """
         b, q = self.fee_base, self.fee_quote

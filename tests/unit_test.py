@@ -1035,7 +1035,7 @@ def test_endogenous_mm_withdrawal():
     mm._ofi_window = [0.9] * 5
     # The loss term is the revenue accumulated over the horizon, in bps of
     # the capital the dealer began with, so a loss is injected through the
-    # wealth path rather than through the smoothed per tick rate the rule
+    # wealth path and not through the smoothed per tick rate the rule
     # used to read. Three hundred basis points against a ten point threshold
     # saturates the term, which is what a large loss is meant to do here.
     mm._loss_bps_ewma = 30.0
@@ -1360,11 +1360,11 @@ def test_primary_model_manifest_defaults():
     # Two targets were changed after the fact, and the reasons are recorded in
     # the matrix. A test that only counts targets would let either of them come
     # back silently, which is the one way this change could turn into a quiet
-    # improvement of the score rather than a stated decision.
+    # improvement of the score and not a stated decision.
     active = {row['observable']: row for row in targets.get('targets', [])}
     withdrawn = {row['observable']: row for row in targets.get('withdrawn_targets', [])}
 
-    depth = active.get('near_touch_depth', {})
+    depth = active.get('near_mid_depth_thin_side', {})
     check_bool("Touch depth is a diagnostic and not a gate",
                depth.get('gating') is False
                and float(depth.get('objective_weight', 1.0)) == 0.0
@@ -1453,7 +1453,7 @@ def test_primary_model_manifest_defaults():
     sim = Simulator.default_fx(n_fx_takers=4, n_fx_fund=1, n_retail=2, n_institutional=1)
     sim.simulate(20, silent=True)
     breaches = [
-        tr for tr in sim.info.traders.values()
+        tr for tr in sim.traders
         if getattr(tr, 'cash', 0.0) < -getattr(tr, 'max_cash_borrow', 0.0) - 1e-9
         or getattr(tr, 'assets', 0.0) < -getattr(tr, 'max_short_assets', 0.0) - 1e-9
     ]
@@ -1919,9 +1919,8 @@ def test_mm_withdrawal_preset():
                f"mm={args.liquidity_shock_decay}, dealer={main_module.REALISM_PRESETS['dealer_liquidity_crisis']['liquidity_shock_decay']}")
     check_bool("MM withdrawal keeps the default CLOB build for apples-to-apples stats",
                args.n_fast_lp == parser.get_default('n_fast_lp')
-               and args.n_latent_lp == parser.get_default('n_latent_lp')
                and args.clob_near_mid_target_ratio == parser.get_default('clob_near_mid_target_ratio'),
-               f"n_fast_lp={args.n_fast_lp}, n_latent_lp={args.n_latent_lp}, near_mid={args.clob_near_mid_target_ratio}")
+               f"n_fast_lp={args.n_fast_lp}, near_mid={args.clob_near_mid_target_ratio}")
     check_bool("MM withdrawal accelerates near-mid background replenishment",
                args.bg_target_ratio_recovery > main_module.REALISM_PRESETS['funding_liquidity_shock']['bg_target_ratio_recovery'],
                f"mm={args.bg_target_ratio_recovery}, funding={main_module.REALISM_PRESETS['funding_liquidity_shock']['bg_target_ratio_recovery']}")
@@ -2054,19 +2053,16 @@ def test_the_scenario_pause_is_not_read_as_a_decision():
     _seed_all(42)
     sim = build_sim(a)
 
+    # Stepped, so the dealer state can be read on every period. This used to
+    # hook the per agent collector's capture call, which is gone with the
+    # populations it recorded.
     seen = []
-    info = sim.info
-    original = info.capture
-
-    def capture(*args, **kwargs):
+    for _ in range(a.n_iter):
+        sim.simulate(1, silent=True)
         paused = getattr(sim.env, 'mm_pause_ticks', 0) > 0
         summary = sim._market_maker_state_summary()
         seen.append((paused, summary.get('channel_shares', {}),
                      summary['n_market_makers']))
-        return original(*args, **kwargs)
-
-    info.capture = capture
-    sim.simulate(a.n_iter, silent=True)
 
     during = [row for row in seen if row[0]]
     check_bool("the scenario does pause the dealers at some point",
@@ -2174,18 +2170,18 @@ def test_providers_may_react_between_taker_orders():
     Merging them turned an order life of two ticks into an order life of two
     trades, and let a provider that had not been hit rebuild its whole quote
     set out of nothing. Both are checked here, together with the shared
-    helper that LatentLP called without inheriting.
+    helper the provider shares with the retired conditional provider.
     """
     section("A FILL IS NOT A TICK")
 
     import numpy as _np
-    from AgentBasedModel.agents.agents import (FastRecyclerLP, LatentLP,
+    from AgentBasedModel.agents.agents import (FastRecyclerLP,
                                                RestingQuoteProvider)
     from main import (build_parser, _apply_preset_defaults, _resolve_main_routing,
                       _auto_stress_around_shock, _seed_all, build_sim)
 
     subsection("both providers own the shared quoting machinery")
-    for cls in (FastRecyclerLP, LatentLP):
+    for cls in (FastRecyclerLP,):
         check_bool(f"{cls.__name__} inherits the resting quote helpers",
                    issubclass(cls, RestingQuoteProvider)
                    and hasattr(cls, '_quotes_still_good')
@@ -2232,7 +2228,7 @@ def test_providers_may_react_between_taker_orders():
         _seed_all(seed)
         sim = build_sim(a)
         sim.substep_replenish = substep
-        lps = [t for t in sim.book_agents if isinstance(t, (FastRecyclerLP, LatentLP))]
+        lps = [t for t in sim.book_agents if isinstance(t, FastRecyclerLP)]
         tally = {'call': 0, 'on_trade': 0, 'posted': 0, 'called_without_a_fill': 0}
         for lp in lps:
             def wrap_call(f=lp.call):
@@ -2399,7 +2395,7 @@ def test_the_arms_share_one_external_path():
 
     The paired design subtracts a run without the facility from a run with it
     on the same seed, and the whole point of that is to remove the randomness
-    rather than to average it away. It only works if the two runs face the
+    and not to average it away. It only works if the two runs face the
     same volatility, funding and latent price. They did not. Both drew from
     the global generator, the arm carrying the facility consumed numbers the
     other did not, and the paths separated at the second tick. Every paired
@@ -2441,7 +2437,7 @@ def test_the_arms_share_one_external_path():
                    f"largest gap {gap:.3e}")
 
     # And distinct seeds must still give distinct worlds, or the stream would
-    # be fixed rather than merely separated.
+    # be fixed and not merely separated.
     a42, a43 = path(42, True), path(43, True)
     k = min(len(a42), len(a43))
     check_bool("different seeds still give different paths",
@@ -2459,8 +2455,7 @@ def test_realism_shock_mode():
         n_noise=8, n_mm=1,
         n_fx_takers=0, n_fx_fund=0,
         n_retail=0, n_institutional=0,
-        n_clob_fund=1, n_clob_chart=0,
-        n_clob_univ=0, clob_volume=200,
+        n_clob_fund=1, clob_volume=200,
         shock_mode='realism',
         fundamental_shock_pct=-15.0,
         order_flow_shock_qty=0.0,
@@ -2492,8 +2487,7 @@ def test_realism_shock_mode():
         n_noise=8, n_mm=1,
         n_fx_takers=0, n_fx_fund=0,
         n_retail=0, n_institutional=0,
-        n_clob_fund=1, n_clob_chart=0,
-        n_clob_univ=0, clob_volume=200,
+        n_clob_fund=1, clob_volume=200,
         shock_mode='realism',
         fundamental_shock_pct=0.0,
         order_flow_shock_qty=80.0,
@@ -2766,45 +2760,30 @@ def test_recovery_support_counts_the_facility():
         return _make(pools)._estimate_recovery_support()
 
     without = _support()
-    check_bool("a market with no facility is unchanged by the term",
+    check_bool("a market with no facility reads its incumbents only",
                abs(without - 0.85) < 1e-12,
                f"support={without:.6f}")
 
-    # The opening depth is captured on the first reading and the pool is then
-    # drawn down, which is the sequence a run actually follows.
+    # A facility must not move this term at all. It multiplies the rate at
+    # which the environment restores normal quoting, which is one of the
+    # outcomes the arms are compared on, so a facility entering it would move
+    # that outcome by a declared weight instead of by what the facility does.
+    # The two arm types used to enter through different channels, a pool
+    # through a venue weight of fifteen hundredths and an obliged quoter
+    # through its share of an active dealer sector, so the comparison carried
+    # an assumed difference in recovery on top of a measured one.
     pool = HFMMPool(x=1000.0, y=100_000.0, A=18.0, fee=0.0005, rate=100.0)
     sim = _make({'hfmm': pool})
-    at_opening = sim._estimate_recovery_support()
-    check("a facility at its opening depth carries its declared weight",
-          at_opening - without, Simulator.VENUE_RECOVERY_WEIGHT, abs_tol=1e-12)
+    check("a pool does not move the recovery term",
+          sim._estimate_recovery_support(), without, abs_tol=1e-12)
 
     pool.remove_liquidity(0.5)
-    drawn_down = sim._estimate_recovery_support()
-    check_bool("drawing the pool down lowers what it supports",
-               without < drawn_down < at_opening,
-               f"without={without:.6f}, drawn={drawn_down:.6f}, "
-               f"opening={at_opening:.6f}")
+    check("nor does drawing it down",
+          sim._estimate_recovery_support(), without, abs_tol=1e-12)
 
-    # Depth is the square root of the reserve product, so halving both legs
-    # halves the depth and with it half of the facility's contribution.
-    check("the contribution falls in proportion to the depth that remains",
-          drawn_down - without, 0.5 * Simulator.VENUE_RECOVERY_WEIGHT,
-          abs_tol=1e-9)
-
-    pool.closed = True
-    check_bool("a closed pool supports nothing",
-               abs(sim._estimate_recovery_support() - without) < 1e-12,
-               f"without={without:.6f}")
-    pool.closed = False
-
-    # Calm drift carries a pool a few per cent above where it opened. That is
-    # not extra support, and the cap has to absorb it.
-    grown = _make({'hfmm': pool})
-    grown._estimate_recovery_support()
-    pool.add_liquidity(0.4)
-    check("depth above the opening level is capped, not rewarded",
-          grown._estimate_recovery_support() - without,
-          Simulator.VENUE_RECOVERY_WEIGHT, abs_tol=1e-12)
+    check_bool("the retired venue weight is zero",
+               Simulator.VENUE_RECOVERY_WEIGHT == 0.0,
+               f"weight={Simulator.VENUE_RECOVERY_WEIGHT}")
 
 
 # =====================================================================

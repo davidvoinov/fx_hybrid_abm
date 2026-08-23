@@ -5,11 +5,11 @@
   },
   "metrics": {
     "avg_cost_bps": {
-      "clob_Q1": 0.6391953415119421,
-      "clob_Q20": 0.932332736884062,
-      "clob_Q5": 0.7297027543134029,
+      "clob_Q1": 0.4071428325257122,
+      "clob_Q20": 0.646018417625947,
+      "clob_Q5": 0.5156642805116359,
       "cpmm_Q5": null,
-      "hfmm_Q5": 7.703689450136437
+      "hfmm_Q5": 3.703563889762845
     },
     "avg_flow_share": {
       "clob": 1.0,
@@ -18,7 +18,7 @@
     },
     "cost_correlation_Q5": {
       "clob_cpmm": 0.0,
-      "clob_hfmm": 0.0
+      "clob_hfmm": -0.7051914875686844
     },
     "n_iterations": 120,
     "n_trades": 7,
@@ -53,7 +53,7 @@
       },
       "small": {
         "clob": {
-          "avg_cost_bps": 0.8786101117227924,
+          "avg_cost_bps": 0.48221352902477,
           "total_volume": 19.0
         },
         "cpmm": {

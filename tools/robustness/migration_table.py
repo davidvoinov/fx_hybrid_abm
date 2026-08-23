@@ -257,7 +257,7 @@ def main(argv=None):
 
         def col(k):
             # Records written before a column existed are simply absent, so a
-            # cache from an earlier pass degrades to a blank cell rather than
+            # cache from an earlier pass degrades to a blank cell and not
             # forcing every seed to be measured again.
             v = np.asarray([r.get(k, float('nan')) for r in recs], dtype=float)
             v = v[np.isfinite(v)]

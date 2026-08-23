@@ -355,7 +355,7 @@ def test_loss_rebate_is_bounded_and_paid_by_the_sponsor():
     check_close("a rebate above one is capped at the realised loss",
                 capped.history['loss_rebate'][-1],
                 max(0.0, -capped.history['net'][-1]), tol=1e-9)
-    check_close("a full rebate neutralises rather than reverses the loss signal",
+    check_close("a full rebate neutralises and not reverses the loss signal",
                 capped.history['rho_eff'][-1], 0.0, tol=1e-12)
 
 
@@ -616,7 +616,7 @@ def test_decision_magnitude_and_clamp():
     slower = EndogenousLP(outside_option=0.0, tokens=1.0, kappa=0.5,
                           response_scale=2e-6, max_adj=0.05,
                           exit_patience=10 ** 9)
-    check_close("the response scale is explicit rather than hard coded",
+    check_close("the response scale is explicit and not hard coded",
                 slower.decide(1e-7, 1), 0.5 * 1e-7 / 2e-6, tol=1e-12)
     lp2 = EndogenousLP(outside_option=0.0, tokens=1.0, kappa=0.5,
                        max_adj=0.05, exit_patience=10 ** 9)
@@ -673,7 +673,7 @@ def test_the_size_response_is_sensitive_to_the_outside_option_everywhere():
     check_close("a dominant outside option sets the scale itself",
                 response(1e-3), 0.5 * 1e-7 / (1e-3 + 1e-6), tol=1e-12)
     # The calibrated configuration barely moves, so this restores a derivative
-    # rather than repricing the primary result.
+    # instead of repricing the primary result.
     check_close("the calibrated response is within a per cent of the old form",
                 response(1.3319e-9) / (0.5 * 1e-7 / 1e-6), 1.0, tol=0.01)
 
@@ -1061,7 +1061,7 @@ def test_runs_inside_the_simulator():
         check_bool("simulator import", False, f"{type(e).__name__}: {e}")
         return
 
-    # Built through the factory rather than substituted in afterwards. The
+    # Built through the factory and not substituted in afterwards. The
     # earlier version replaced ``sim.lp_providers`` by hand, which tested the
     # module but hid the fact that nothing in the model ever asked for it, so
     # every research run was still using the fixed rule provider.
@@ -1142,7 +1142,7 @@ def test_queued_tokens_still_earn_fees():
     pop.update_liquidity()
     check_bool("there is a queued claim to test", pop.queued_tokens > 1e-9,
                f"{pop.queued_tokens}")
-    check_bool("some tokens are held rather than queued",
+    check_bool("some tokens are held and not queued",
                sum(lp.tokens for lp in pop.providers) > 1e-9)
     pool.fee_quote += 4.0
     pool.period_fee_revenue = 4.0
@@ -1775,7 +1775,7 @@ def test_the_rule_responds_in_the_right_direction():
     check_bool("a dearer balance sheet pushes capital out", dearer < base,
                f"{dearer} vs {base}")
 
-    # Read the model's own response rather than recomputing the formula in the
+    # Read the model's own response instead of recomputing the formula in the
     # test, which would agree with any formula the test happened to repeat.
     # With no fee and no funding charge the whole response is the loss term.
     calm, _ = _rule_step(CPMMPool(x=1000.0, y=1000.0, fee=0.003),
@@ -1886,13 +1886,13 @@ def test_the_profit_statement_matches_the_wallets_on_a_traded_path():
     #
     # The tolerance was two per cent while the crisis window opened one step
     # late. Correcting that window moved the covered steps by one, so the
-    # window now opens on a buy rather than on a sell and closes one trade
+    # window now opens on a buy and not on a sell and closes one trade
     # earlier, and the residual it leaves rose from just under two per cent of
     # the fees to about two and a half. The residual is a real property of the
     # path and not of the accounting, since a round trip of equal size on a
     # curve does not return the reserves exactly to where they began. The
     # tolerance is restated at five per cent so that it bounds the claim being
-    # made, that the loss is small beside the fees, rather than the particular
+    # made, that the loss is small beside the fees, and not the particular
     # phase the window happens to open on.
     check_bool("a round trip leaves almost no rebalancing loss",
                abs(lvr) < 0.05 * banked, f"loss {lvr}, fees {banked}")

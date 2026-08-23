@@ -1,4 +1,4 @@
 from AgentBasedModel.agents.agents import (
-    ExchangeAgent, Trader, Random, Chartist, Fundamentalist, Universalist,
-    MarketMaker, AMMProvider, AMMArbitrageur, FastRecyclerLP, LatentLP,
+    ExchangeAgent, Trader, Random, Fundamentalist,
+    MarketMaker, AMMProvider, AMMArbitrageur, FastRecyclerLP,
 )

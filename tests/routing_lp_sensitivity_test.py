@@ -248,7 +248,7 @@ def test_lp_operating_result_nets_pure_capital_flows_to_zero():
 
 
 def _valid_raw_record(config, seed=42):
-    # Spelled out rather than taken from the module, so that a change to the
+    # Spelled out and not taken from the module, so that a change to the
     # recorded runtime identity has to be restated here before the cache test
     # goes green again.
     runtime = {

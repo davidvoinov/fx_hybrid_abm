@@ -158,7 +158,7 @@ _RAW_SCHEMA_VERSION = 2
 
 # The runtime cell is deliberately exact.  If any of these primary-market
 # values changes, the model signature changes as well, but accepting the new
-# value here still requires an explicit review rather than silently moving the
+# value here still requires an explicit review and not silently moving the
 # centre of a precommitted OAT.
 _PRIMARY_AMM_SHARE_PCT = 22.0
 _PRIMARY_HFMM_RESERVES_BASE = 3400.0

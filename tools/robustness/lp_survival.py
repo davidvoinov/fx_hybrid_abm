@@ -18,7 +18,7 @@ calibration file, ``funding_rate_scale``, about three per cent a year at one
 second to the tick. It is not a free parameter and is not fitted here. The
 behavioural parameters are another matter. Exit and entry patience, the EWMA
 speed, adjustment cap and the dispersion of the outside option have no
-counterpart in \\FX{} data, so they are swept rather than calibrated, and
+counterpart in \\FX{} data, so they are swept and not calibrated, and
 the full configuration is part of the cache key.
 """
 from __future__ import annotations
@@ -95,7 +95,7 @@ _POOL_ROW_FIELDS = frozenset({'pool'}).union(
 def _calibrated_lp_defaults():
     """Runtime LP defaults from the canonical calibration file.
 
-    Reading them here rather than repeating literals keeps the survival audit
+    Reading them here instead of repeating literals keeps the survival audit
     on the same economic specification as the primary runtime.
     """
     path = os.path.join(ROOT, 'calibration', 'primary_model.json')

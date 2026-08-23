@@ -1,6 +1,6 @@
 {
-  "protocol_version": "book-lp-final-v4",
-  "frozen_at": "2026-08-16",
+  "protocol_version": "book-lp-final-v5",
+  "frozen_at": "2026-08-21",
   "scope": "Computational closure of the EBS book calibration and endogenous AMM-LP block. Manuscript prose is outside this protocol.",
   "revision_history": [
     {
@@ -28,7 +28,7 @@
       "version": "book-lp-final-v4",
       "frozen_at": "2026-08-16",
       "result": "frozen_after_structural_rebuild",
-      "reason": "Every frozen hash changed, so v2 could authorise nothing. The rotation is recorded rather than performed quietly, because a protocol that is reissued whenever it becomes inconvenient is not a commitment device. The holdout seeds have still never been evaluated and the commitment is carried across unchanged.",
+      "reason": "Every frozen hash changed, so v2 could authorise nothing. The rotation is recorded and not performed quietly, because a protocol that is reissued whenever it becomes inconvenient is not a commitment device. The holdout seeds have still never been evaluated and the commitment is carried across unchanged.",
       "changes": [
         "price_tick declared at the EBS increment; it had been a constructor default and the single largest determinant of the quoted spread.",
         "A dealer or fast provider quote that would cross the book now trades instead of being clamped behind the touch.",
@@ -38,7 +38,7 @@
         "Dealer capacity contagion added, inert below a threshold and convex above it after BIS Working Paper 1138. A gain of zero reproduces the previous model and the regression fingerprint confirms it.",
         "funding_spread_comovement_sign demoted from a gate to a diagnostic after its power was measured at zero: the model passes it at a funding coefficient of zero and at minus ten times the calibrated magnitude.",
         "Touch depth and the order-flow persistence band demoted to diagnostics; the band had been read from a column of Wald statistics.",
-        "Spread target restated on the published annual average for 2025 rather than a favourable slice of 2024.",
+        "Spread target restated on the published annual average for 2025 and not a favourable slice of 2024.",
         "price_discovery_half_life_ticks added as a gate, measured in the crisis scenario.",
         "Signature keys no longer include __module__. The same source tree produced two different signatures depending on whether a module was imported or run with python -m, so a protocol frozen one way refused the identical code run the other way.",
         "mm_softlimit declared and raised from 100 to 200. The inventory term alone was reaching the withdrawal threshold on calm paths, because the limit had been left at the value it carried when the dealer held a single unit.",
@@ -48,20 +48,75 @@
       "thresholds_changed": true,
       "holdout_opened_at_freeze": false,
       "version_note": "Numbered v4 and not v3. The string book-lp-final-v3 is reserved in tools/robustness/lp_acceptance.py as DIRECT_PROTOCOL_VERSION, where it selects a stricter direct-acceptance contract that forbids a historical amendment and requires the LP signatures to be frozen directly. This rotation does not satisfy that contract, so taking the name would have claimed a guarantee it does not provide."
+    },
+    {
+      "version": "book-lp-final-v5",
+      "frozen_at": "2026-08-21",
+      "result": "frozen_after_episode_implementation",
+      "reason": "The crisis scenario the panel audits is now the identified March 2020 episode. The synthetic preset it replaced evacuated the whole dealer sector on every seed, so the mechanism checks were reading a scripted outcome. The holdout block moves to 20042 because 10042 was evaluated under v2 and is spent.",
+      "changes": [
+        "dash_for_cash_2020 and dealer_capacity_contagion added as identified EUR/USD episodes with sustained stress.",
+        "Episode stress persists over the window. At the decay the synthetic presets carried, a half life near 13 seconds, the stress was gone before dealers reacted: friction while dealer capacity was impaired measured 0.064, against 0.718 once the half life is near 230 seconds.",
+        "The contagion channel multiplies existing friction instead of adding a term of its own. The additive level form held systemic liquidity at 1/(1+g), under the 0.55 a withdrawn dealer needs to return, and latched the sector out for 586 periods of 1000 against 244 with the channel off.",
+        "dealer_capacity_threshold lowered from 0.5 to 0.25, the level the sector reaches without degenerating.",
+        "dealer_cascade_gain set to zero: the severity at which the channel becomes measurable is the severity at which the sector evacuates, so no admissible setting both acts and leaves a valid market.",
+        "The per-seed EBS pass rate demoted from a gate to a diagnostic.",
+        "The dealer response window in the acceptance metrics widened from 60 periods to 150. The window was shorter than the response it measures: impaired capacity reaches 0.56 only by the fortieth period and peaks near the eightieth, so on 300 seeds a 60 period window recorded no withdrawal on 29 per cent of paths where dealers did withdraw later, and crisis activation read 0.707 while the sector responded on nearly every path.",
+        "Dealers carry a private internalised client franchise. Without one their inventories correlate 0.961 through the crisis and the sector crosses its withdrawal thresholds together.",
+        "simulate is resumable. The tick counter was the loop index and restarted at zero on every call, so a run built by stepping one period at a time never reached the tick the shock is scheduled on and silently produced a shock free path.",
+        "The most robust dealer is a core placed above the withdrawal ladder, so a common shock can take at most four dealers of five and a full evacuation is impossible by construction. Every other measured quantity is unchanged.",
+        "The contagion gain is 4.0. At 2.0 the multiplier on friction at the median impairment is 1.06 and the channel is not detectable; at 4.0 the effect on 200 paired seeds is +0.17 [+0.01, +0.34] on the peak spread and +18.7 [+6.9, +31.5] on cumulative excess.",
+        "Resource matched arms added: a dealer of last resort and a passive book facility holding the same capital and inventory capacity as the reserve priced pool, and a reallocation arm funding the pool out of the dealer sector. All default to the reserve arm at its natural size, which leaves the calibrated model unchanged."
+      ],
+      "thresholds_changed": true,
+      "holdout_opened_at_freeze": false
+    },
+    {
+      "version": "book-lp-final-v5.1",
+      "frozen_at": "2026-08-22",
+      "result": "description_realigned_pending_rotation",
+      "reason": "The LP block described a scenario and a window the tooling no longer runs, so the manifest documented one experiment while the code ran another. No threshold and no target moved; the target matrix digest is unchanged. A full rotation waits on the resource matched arms.",
+      "changes": [
+        "lp_design.scenario moved from dealer_liquidity_crisis to dash_for_cash_2020, matching the acceptance panel and the welfare tooling.",
+        "lp_design.crisis_window_offsets moved from 0-100 to 0-150, matching the resilience comparison and exceeding the minimum time an exit takes to form.",
+        "final_inference_panel seed block moved from 10042 to 20042, the earlier block having been spent under v2 while the status field still called it untouched.",
+        "pnl_panel and welfare_incidence_panels marked superseded, their results having been produced on the replaced episode.",
+        "dealer_cascade_gain stands at 4.0. The v4 note recording it as zero was written before two errors in its measurement were found, an amplitude too weak to register and an unconditional average over a tail effect, and it is superseded and not removed."
+      ],
+      "thresholds_changed": false,
+      "holdout_opened_at_freeze": false
+    },
+    {
+      "version": "book-lp-final-v5.2",
+      "frozen_at": "2026-08-23",
+      "result": "model_signature_semantics_corrected",
+      "reason": "The model digest claimed to cover only what can change a simulated trajectory and hashed the raw bytes of every module, so an edit to a comment invalidated the provenance of every stored artifact and forced a re-run that could not have produced a different number. It now hashes the token stream with comments and blank lines removed, which is invariant to layout and moves on any executable change. Every frozen digest below is therefore restated; no threshold, target or parameter moved with it.",
+      "changes": [
+        "model_signature hashes executable tokens instead of raw bytes for Python modules.",
+        "Retired the chartist, universalist and conditional provider populations, which the calibration held at zero while the paper tabulated them as part of the model.",
+        "Retired the per agent collector and the plots that read it, which recorded dividends, sentiments and strategy switching that this market does not have.",
+        "The facility arm is excluded from the incumbent dealer aggregate and from the dealer state shares, carries no credit line, opens flat with a short line matched to the pool base reserve, quotes independently of market stress and reprices whenever the mid moves.",
+        "The arms outcome is the best executable round trip cost across both venues, which is the outcome the paper declares. Read as the order book spread alone it was pinned by the arms that quote into that book and blind to the arm that is a separate venue.",
+        "Added a recovery speed against a level taken from the control, which is the second limb of H1, and a markout of the flow each venue fills, which is H2.",
+        "The target matrix digest covers what each target tests and no longer covers the prose recording where it came from, which is the line primary_runtime_sha256 already drew for the model manifest. Rewording a note no longer invalidates a frozen protocol; changing an observable, a band, a gate, a weight or a source still does.",
+        "near_touch_depth renamed to near_mid_depth_thin_side. It was named and documented as the quantity resting at the best bid and ask and measured the smaller side within twenty five basis points of the mid, a band of some twenty seven pips, so its realised value read two orders above the touch. It also cited a study of ASX equities for a foreign exchange observable; the source now records that none is identified. The record carries the scale that EBS turnover implies, one base unit near 1.3 million euro, against which the touch holds a few million and is the right order for the venue."
+      ],
+      "thresholds_changed": false,
+      "holdout_opened_at_freeze": false
     }
   ],
   "phases": {
     "development": {
       "seed_start": 42,
       "seed_count": 300,
-      "status": "pending_rerun_under_v3",
-      "output": "output/final/book_development_v4_300.json"
+      "status": "pending_rerun_under_v5",
+      "output": "output/final/book_development_v5_300.json"
     },
     "holdout": {
       "seed_start": 20042,
       "seed_count": 300,
-      "status": "committed_unseen_single_use_holdout",
-      "output": "output/final/book_holdout_v4_300.json"
+      "status": "untouched_single_use_holdout",
+      "output": "output/final/book_holdout_v5_300.json"
     }
   },
   "thresholds": {
@@ -78,12 +133,13 @@
     "minimum_completed_lifecycle_events_per_seed_per_class": 100
   },
   "lp_design": {
-    "scenario": "dealer_liquidity_crisis",
+    "scenario": "dash_for_cash_2020",
     "final_inference_panel": {
-      "seed_start": 10042,
+      "seed_start": 20042,
       "seed_count": 300,
       "n_iter": 1000,
-      "status": "untouched_single_use_holdout_shared_with_book_validation"
+      "status": "untouched_single_use_holdout_shared_with_book_validation",
+      "status_note": "Moved from 10042, which the revision history records as run and passed under v2. The field still named that block untouched, so the manifest offered a spent holdout as a virgin one."
     },
     "development_robustness_panel": {
       "seed_start": 42,
@@ -93,7 +149,7 @@
     },
     "crisis_window_offsets": [
       0,
-      100
+      150
     ],
     "factorial": {
       "exit_entry_patience": [
@@ -163,7 +219,8 @@
         20.0
       ],
       "bootstrap_draws": 20000,
-      "bootstrap_seed": 0
+      "bootstrap_seed": 0,
+      "status": "superseded_results_recomputed_on_the_new_episode"
     },
     "welfare_incidence_panels": {
       "seed_start": 10042,
@@ -184,7 +241,8 @@
           "subsidy_rate": 1.3319e-09,
           "loss_rebate": 1.0
         }
-      ]
+      ],
+      "status": "superseded_results_recomputed_on_the_new_episode"
     },
     "mechanism_controls": [
       "zero_support_private_sustainability",
@@ -210,7 +268,8 @@
       "total_welfare_identified": false,
       "zero_entry_by_horizon_interpreted_as": "right_censored_nonactivation_or_unprofitable_entry_condition",
       "customer_routing_and_arbitrage_flow_are_separate_estimands": true
-    }
+    },
+    "scenario_note": "Moved from dealer_liquidity_crisis with the rest of the panel. The window moves from a hundred periods to a hundred and fifty because the least patient provider needs a hundred and forty five periods of sustained shortfall to complete an exit, so a provider result read over a hundred could not register a departure the episode caused."
   },
   "lp_frozen_signatures": {
     "survival_measurement_signature": "94b60e36107a5119",
@@ -225,9 +284,9 @@
     "lp_acceptance_code_sha256": "27fca6e3e8f8c6f298d00db407b762148f906d6067d75c11f780858934435166"
   },
   "frozen_hashes": {
-    "target_matrix_sha256": "a1908b86be67ca1c4a346aa0afbb0b72bf24023af09d0c3a84faae90555e1400",
-    "primary_runtime_sha256": "e2d4efa9ea4e17581dc81c6c96c1d261e19299afba31376265129584de303511",
-    "simulation_model_signature": "321df2a54aba9682",
-    "book_acceptance_signature": "d687d4ca2f2ffba8"
+    "target_matrix_sha256": "84e0b86ef47da6a9ae3a7d42b13d3bd0764925955a5a61ec75dc98ecb13f7788",
+    "primary_runtime_sha256": "3303460c2e202779b00147b3d66cf66bb6878318b443c6842fb778d9619cd573",
+    "simulation_model_signature": "5f818bf82526c1e1",
+    "book_acceptance_signature": "33fdee68099f0193"
   }
 }

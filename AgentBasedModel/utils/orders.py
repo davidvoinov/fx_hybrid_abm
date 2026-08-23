@@ -216,7 +216,7 @@ class OrderList:
         # Insert order in the beginning.
         #
         # The comparison is strict, so an order arriving at a price that is
-        # already in the book goes behind what is resting there rather than
+        # already in the book goes behind what is resting there and not
         # in front of it. With the non strict form the queue ran last in
         # first out at a given price: the newest quote was filled first and
         # posting early carried no advantage. That is neither price time

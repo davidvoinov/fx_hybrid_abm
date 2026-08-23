@@ -1,7 +1,7 @@
 """Collect the regression baseline check into the suite.
 
 The check itself lives in ``tests/regression/compare_baseline.py``, which also
-runs as a script. That module is named for what it does rather than for the
+runs as a script. That module is named for what it does and not for the
 collector, so pytest never picked it up: the whole ``tests/regression``
 directory reported "no tests collected" and the baseline drifted for as long
 as the model did. By the time anyone read it by hand it disagreed with the

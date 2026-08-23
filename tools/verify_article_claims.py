@@ -101,7 +101,7 @@ def _table_body(text, label):
     """The rows of the labelled table, so a number has to sit in it.
 
     The sentinel '*' widens the search to the whole manuscript, which is the
-    weaker check and is used only where the claim lives in prose rather than
+    weaker check and is used only where the claim lives in prose and not
     in a table.
     """
     if label == '*':
@@ -150,7 +150,7 @@ def claims():
         triple('calibrated crisis', base['rows']['crisis'], 4, 'tab:lppnl')
         if base.get('breakeven'):
             triple('calibrated break even', base['breakeven'], 2, 'tab:lppnl')
-    # H2 argues from the shape of the loss rather than from its portfolio
+    # H2 argues from the shape of the loss and not from its portfolio
     # total, so the crisis figure it quotes is protected here as well. The
     # calm counterpart rounds to zero and is stated in words, so there is no
     # number to hold it to.
@@ -196,9 +196,17 @@ def _calibration_claims():
     them and requiring it to would assert the opposite of the current design.
     """
     import json
-    path = os.path.join(ROOT, 'output', 'main_aware',
-                        'calibration_search_report.json')
-    if not os.path.exists(path):
+    # The manuscript reports the panel the protocol froze, so that artifact is
+    # what the table is checked against. The search report under output/main_aware
+    # is written by whatever exploratory run happened last, which is typically a
+    # small seed count, and holding a three hundred seed table to a twelve seed
+    # panel compares two different measurements.
+    candidates = [
+        os.path.join(ROOT, 'output', 'final', 'book_development_v5_300.json'),
+        os.path.join(ROOT, 'output', 'main_aware', 'calibration_search_report.json'),
+    ]
+    path = next((c for c in candidates if os.path.exists(c)), None)
+    if path is None:
         return []
     try:
         report = json.load(open(path, encoding='utf-8'))

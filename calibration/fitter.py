@@ -211,6 +211,17 @@ def _nearest_trade_size(grid: list[float], target_q: float) -> float:
 
 
 
+# Periods after the shock over which the dealer response is read. It was 60,
+# which is shorter than the response it measures: with the inventory half life
+# at 65 seconds and withdrawal requiring two consecutive above-threshold
+# observations, impaired capacity reaches 0.56 only by the fortieth period and
+# peaks around the eightieth. Measured on the identified March 2020 episode over
+# 300 seeds, a 60 period window recorded no withdrawal at all on 29 per cent of
+# seeds where dealers did withdraw later, so crisis activation read 0.707 while
+# the sector responded on essentially every path.
+DEALER_RESPONSE_WINDOW = 150
+
+
 def _price_discovery_half_life(logger, shock_iter) -> float:
     """Periods for the book's distance from the latent value to halve.
 
@@ -244,7 +255,7 @@ def _price_discovery_half_life(logger, shock_iter) -> float:
         g = gap(i)
         if g == g and g <= opening / 2.0:
             return float(i - start)
-    # Never halved inside the run; report the window rather than a silent nan
+    # Never halved inside the run; report the window and not a silent nan
     # so that the failure is visible as a number.
     return float(n - start)
 
@@ -373,7 +384,7 @@ class CalibrationFitter:
                 rows.extend(observations(include_live=True))
                 continue
             # A legacy object remains measurable but is meant to fail the
-            # reason-coverage gate rather than masquerading as full telemetry.
+            # reason-coverage gate instead of masquerading as full telemetry.
             rows.extend({
                 'lifetime': float(age),
                 'censored': False,
@@ -444,7 +455,7 @@ class CalibrationFitter:
 
         checks: list[bool] = []
         # Use median HFMM basis (matches paper claim of "average CLOB-HFMM
-        # basis") rather than the time-mean of the max across pools, which
+        # basis") and not the time-mean of the max across pools, which
         # is sensitive to outliers and conflates CPMM with HFMM.
         hfmm_basis = CalibrationFitter._hfmm_basis_series(sim)
         median_hfmm_basis = _finite_median(hfmm_basis) if hfmm_basis else float('nan')
@@ -452,11 +463,23 @@ class CalibrationFitter:
             checks.append(median_hfmm_basis <= 25.0)
 
         for pool in pools.values():
-            checks.append(100.0 <= float(pool.x) <= 50_000.0)
-            checks.append(0.0005 <= float(pool.fee) <= 0.01)
+            # The reserve a run is configured with, and not the reserve it
+            # ends on. A pool the model allows to be drawn down on one side
+            # reports a terminal reserve near zero for a reason the design
+            # intends, which read as a parameter failure on every seed and
+            # made this diagnostic say nothing about the parameters.
+            opening = getattr(pool, 'x_history', None)
+            reserve = float(opening[0]) if opening else float(pool.x)
+            checks.append(100.0 <= reserve <= 50_000.0)
+            # One band per curve. The two were applied cumulatively, so a
+            # hybrid pool had to satisfy the constant product band as well as
+            # its own, leaving an effective floor of five basis points that
+            # the hybrid band was written to relax.
             if hasattr(pool, 'A'):
                 checks.append(2.0 <= float(pool.A) <= 100.0)
                 checks.append(0.0001 <= float(pool.fee) <= 0.005)
+            else:
+                checks.append(0.0005 <= float(pool.fee) <= 0.01)
 
         return 1.0 if checks and all(checks) else 0.0
 
@@ -498,22 +521,24 @@ class CalibrationFitter:
             # the book together with one that left on its own reading of its
             # own position, and every scenario that produces a large number
             # here is a scenario that scripts a pause, so the union measures
-            # the preset rather than the mechanism.
+            # the preset and not the mechanism.
             dealer_withdrawal_share = _window_mean(
                 logger.mm_channel_shares.get('endogenous', []),
                 shock_iter,
-                shock_iter + 60,
+                shock_iter + DEALER_RESPONSE_WINDOW,
             )
             dealer_forced_pause_share = _window_mean(
                 logger.mm_channel_shares.get('forced_pause', []),
                 shock_iter,
-                shock_iter + 60,
+                shock_iter + DEALER_RESPONSE_WINDOW,
             )
             dealer_withdrawal_peak_share = _finite_max(
-                logger.mm_channel_shares.get('endogenous', [])[shock_iter:shock_iter + 60]
+                logger.mm_channel_shares.get('endogenous', [])
+                [shock_iter:shock_iter + DEALER_RESPONSE_WINDOW]
             )
             dealer_forced_pause_peak_share = _finite_max(
-                logger.mm_channel_shares.get('forced_pause', [])[shock_iter:shock_iter + 60]
+                logger.mm_channel_shares.get('forced_pause', [])
+                [shock_iter:shock_iter + DEALER_RESPONSE_WINDOW]
             )
 
         return {
@@ -564,7 +589,9 @@ class CalibrationFitter:
             # discriminate from below, and the venue figure the band is
             # drawn from is an average across the whole day.
             'quoted_spread_mean_bps': _finite_mean(list(logger.clob_qspr)),
-            'near_touch_depth': _finite_mean(logger.clob_touch_depth_series()),
+            'near_mid_depth_thin_side': _finite_mean(
+                logger.clob_thin_side_depth_series()
+            ),
             'order_flow_autocorrelation': flow_diagnostics['lag1_sign_autocorr'],
             'order_flow_mean_run_length': flow_diagnostics['mean_run_length'],
             'impact_curve': _finite_mean(impact_series),
@@ -572,7 +599,7 @@ class CalibrationFitter:
             'dealer_withdrawal_share': dealer_withdrawal_share,
             'funding_liquidity_stress_propagation': self._funding_liquidity_propagation(logger),
             'funding_spread_comovement_sign': self._funding_spread_comovement_sign(logger),
-            # Median HFMM-CLOB basis rather than the time-mean of the
+            # Median HFMM-CLOB basis and not the time-mean of the
             # max across pools, which is dominated by CPMM tail episodes.
             'cross_venue_basis_bps': _finite_median(self._hfmm_basis_series(sim)),
             'amm_volume_share': self._amm_volume_share(logger),

@@ -46,7 +46,7 @@ from calibration.fitter import (
 # seeds fall inside. The earlier pass rate measured the cap and not the model.
 #
 # Demoting a criterion that a change of ours turned red is a move that has to
-# be justified by measurement rather than convenience, and the numbers above
+# be justified by measurement and not convenience, and the numbers above
 # are that justification. Dispersion is now reported with its Wilson interval
 # and gated by nothing.
 EBS_SEED_PASS_RATE_REFERENCE = 0.90
@@ -67,7 +67,7 @@ MIN_COMPLETED_LIFECYCLE_EVENTS = 100
 
 
 # Fractions of the manifest value that each searched parameter is bracketed
-# by. The grid is derived from the manifest rather than written out, because
+# by. The grid is derived from the manifest and not written out, because
 # a grid of literals goes stale silently: before 15.08.2026 this searched
 # mm_alpha0_base over 1.8 to 2.7 while the calibrated value was 0.05, and
 # mm_alpha2 over 420 to 700 while it was 20. Those literals belonged to the
@@ -408,8 +408,35 @@ def _mechanism_audit(ebs_seed_pass: list[bool], calm_peaks: list[float],
     }
 
 
+# Free text that records where a target came from and why, which is part of
+# the manifest and no part of what the target tests.
+_TARGET_PROSE = ('ingestion_note', 'source_excerpt', 'scope', 'ingestion_method',
+                 'revision_history', 'description')
+
+
+def target_matrix_semantics(target_payload: dict[str, Any]) -> Any:
+    """What each target tests, with the prose that explains it removed.
+
+    The digest is a commitment device: it has to move when what is being
+    tested moves. Hashing the manifest whole made it move when a note was
+    reworded too, which invalidates a frozen protocol for a change that cannot
+    alter a verdict and buries the changes that can. ``_primary_runtime_sha256``
+    below already draws this line for the model manifest, and this draws the
+    same one for the target matrix. The observable, the scenario, the band, the
+    weight, the gate and the source all remain inside the digest.
+    """
+    if isinstance(target_payload, dict):
+        return {key: target_matrix_semantics(value)
+                for key, value in target_payload.items()
+                if key not in _TARGET_PROSE}
+    if isinstance(target_payload, list):
+        return [target_matrix_semantics(item) for item in target_payload]
+    return target_payload
+
+
 def _target_matrix_sha256(target_payload: dict[str, Any]) -> str:
-    encoded = json.dumps(target_payload, sort_keys=True, separators=(',', ':'),
+    encoded = json.dumps(target_matrix_semantics(target_payload),
+                         sort_keys=True, separators=(',', ':'),
                          ensure_ascii=False).encode('utf-8')
     return hashlib.sha256(encoded).hexdigest()
 
@@ -649,9 +676,12 @@ def _panel_from_reports(overrides: dict[str, Any], target_payload: dict[str, Any
 
     calm_peaks = [metric(report, 'baseline_primary', 'dealer_withdrawal_peak_share')
                   for report in reports]
-    crisis_peaks = [metric(report, 'dealer_liquidity_crisis', 'dealer_withdrawal_peak_share')
+    # The crisis the panel audits is the identified episode. The synthetic
+    # preset that stood here evacuated the entire dealer sector on every seed,
+    # so the mechanism checks were reading a scripted outcome.
+    crisis_peaks = [metric(report, 'dash_for_cash_2020', 'dealer_withdrawal_peak_share')
                     for report in reports]
-    forced_peaks = [metric(report, 'dealer_liquidity_crisis', 'dealer_forced_pause_peak_share')
+    forced_peaks = [metric(report, 'dash_for_cash_2020', 'dealer_forced_pause_peak_share')
                     for report in reports]
     book_fields = (
         'book_two_sided_rate',

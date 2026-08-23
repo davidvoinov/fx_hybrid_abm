@@ -3,10 +3,12 @@ from __future__ import annotations
 
 import ast
 import hashlib
+import io
 import inspect
 import json
 import os
 import textwrap
+import tokenize
 import types
 
 
@@ -35,6 +37,34 @@ def model_signature_files(root=ROOT):
 _MODEL_CACHE = {}
 
 
+def _executable_source(path) -> bytes:
+    """Module source with comments removed, so the digest tracks behaviour.
+
+    The digest claims to cover only what can change a simulated trajectory, and
+    a comment cannot. Hashing the raw bytes made every edit to a comment
+    invalidate the provenance of every stored artifact and force a re-run that
+    could not have produced a different number. Comments are dropped and
+    everything executable, docstrings included, is kept.
+    """
+    try:
+        with open(path, 'rb') as handle:
+            raw = handle.read()
+        cleaned = []
+        with io.BytesIO(raw) as stream:
+            for token in tokenize.tokenize(stream.readline):
+                # NL is the newline that ends a blank or comment only line,
+                # as against NEWLINE which ends a statement. Dropping both it
+                # and the comment leaves the digest invariant to layout.
+                if token.type in (tokenize.COMMENT, tokenize.NL):
+                    continue
+                cleaned.append((token.type, token.string))
+        return repr(cleaned).encode('utf-8')
+    except (OSError, SyntaxError, tokenize.TokenError, IndentationError):
+        # An unparsable module still has to contribute something stable.
+        with open(path, 'rb') as handle:
+            return handle.read()
+
+
 def model_signature(root=ROOT):
     """Digest only inputs that can change a simulated trajectory."""
     root = os.path.abspath(root)
@@ -51,6 +81,8 @@ def model_signature(root=ROOT):
                 digest.update(json.dumps(
                     payload, sort_keys=True, separators=(',', ':')
                 ).encode('utf-8'))
+            elif relative.endswith('.py'):
+                digest.update(_executable_source(path))
             else:
                 with open(path, 'rb') as handle:
                     digest.update(handle.read())
@@ -73,13 +105,13 @@ def _is_installed_dependency(path, root):
     happens to live. A virtual environment created inside the working tree
     (``./.venv``) puts NumPy below ``root`` and would otherwise be hashed as
     project source, which both contradicts the documented boundary and makes
-    the digest depend on the install location rather than on the code.
+    the digest depend on the install location and not on the code.
     """
     relative = os.path.relpath(path, root)
     parts = relative.split(os.sep)
     if _INSTALLED_DIRECTORY_NAMES.intersection(parts[:-1]):
         return True
-    # An environment is recognised by its own marker file rather than by a
+    # An environment is recognised by its own marker file and not by a
     # conventional directory name, so ``.venv``, ``venv`` and ``env`` are all
     # covered without enumerating them.
     directory = os.path.dirname(path)
@@ -144,7 +176,7 @@ def _function_dependencies(function, root=ROOT):
             candidates.append(namespace[name])
 
     # ``module.helper()`` stores only the module in ``__globals__``. Resolve
-    # exact attribute chains from the source rather than probing every bytecode
+    # exact attribute chains from the source instead of probing every bytecode
     # name on every module (probing NumPy aliases can itself emit warnings).
     try:
         tree = ast.parse(textwrap.dedent(inspect.getsource(function)))

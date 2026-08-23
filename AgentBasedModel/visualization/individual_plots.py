@@ -21,8 +21,8 @@ from AgentBasedModel.metrics.resilience import kaplan_meier_curve
 from AgentBasedModel.visualization.paper_style import (
     use_paper_style,
     PAPER_PALETTE,
-    COLOR_WITH_AMM,
-    COLOR_NO_AMM,
+    COLOR_TREATMENT,
+    COLOR_CONTROL,
     COLOR_GOOD,
     COLOR_BAD,
     COLOR_NEUTRAL,
@@ -30,8 +30,8 @@ from AgentBasedModel.visualization.paper_style import (
 
 use_paper_style()
 
-WITH_AMM_COLOR = COLOR_WITH_AMM
-WITHOUT_AMM_COLOR = COLOR_NO_AMM
+WITH_AMM_COLOR = COLOR_TREATMENT
+WITHOUT_AMM_COLOR = COLOR_CONTROL
 WITH_AMM_LIGHT = '#aab9ce'
 WITHOUT_AMM_LIGHT = '#dfb1a8'
 NEUTRAL_COLOR = COLOR_NEUTRAL

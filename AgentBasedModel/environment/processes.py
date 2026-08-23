@@ -16,11 +16,19 @@ import math
 from typing import Optional, List
 
 
+# Longest stress an episode may declare, as a per tick multiplier: a half
+# life of about twenty three minutes, which outlasts any run in the design.
+# The previous ceiling of 0.99 was a half life of sixty nine seconds, and it
+# was applied silently, so the two episodes documented as lasting weeks
+# declared 0.997 and ran at a third of the duration they stated.
+_MAX_STRESS_DECAY: float = 0.9995
+
+
 def _decay_per_second(half_life_seconds: float) -> float:
     """Per-tick multiplier implied by a half-life stated in seconds.
 
     One tick is one second. Stating the half-life and deriving the
-    multiplier keeps the duration visible in the parameter rather than
+    multiplier keeps the duration visible in the parameter and not
     buried in a decimal that has to be inverted to be understood.
     """
     half_life = max(1e-9, float(half_life_seconds))
@@ -139,6 +147,13 @@ class MarketEnvironment:
         self._shock_decay: float = _decay_per_second(
             self.stress_overlay_half_life_seconds
         )
+        # An episode declares how long its stress lasts, and both limbs have
+        # to hear it. The liquidity limb was given a duration and the
+        # volatility limb was not, so a scenario documented as lasting weeks
+        # decayed its volatility on an eleven second clock: whichever shock
+        # entry point fired last reset this to its own argument default.
+        # Held separately so an episode setting survives that call.
+        self._stress_overlay_decay: Optional[float] = None
 
         # ── Shock liquidity-crisis state ────────────────────────────────
         # Managed by apply_shock(), decremented by step().
@@ -383,7 +398,7 @@ class MarketEnvironment:
                         floor_share: float = 0.5) -> int:
         """Periods the dysfunction state lasts, scaled by shock intensity.
 
-        Stated as a duration rather than as an arithmetic expression in
+        Stated as a duration and not as an arithmetic expression in
         ticks, so that the length of a modelled crisis is a declared input
         and can be set against the episode it claims to represent.
 
@@ -393,7 +408,7 @@ class MarketEnvironment:
         six periods to nineteen at the calibrated intensity and the
         cancellation path from twenty two to fourteen. Each keeps its own
         floor and slope as fractions of the declared duration, so the
-        translation into seconds is exact rather than approximate.
+        translation into seconds is exact and not approximate.
         """
         scale = max(0.0, float(intensity))
         duration = self.stress_duration_seconds
@@ -456,15 +471,20 @@ class MarketEnvironment:
                     1.0, self.background_target_ratio_override + bg_ratio_recovery)
                 if self.background_target_ratio_override >= 0.95:
                     self.background_target_ratio_override = None
-            # Decay toxic flow bias
-            if abs(self.toxic_flow_bias) > 0.01:
-                self.toxic_flow_bias *= toxic_flow_decay
-            else:
-                self.toxic_flow_bias = 0.0
         else:
             self.reprice_prob_override = None
             self.anchor_strength_override = None
             self.background_target_ratio_override = None
+
+        # Toxic flow decays on the clock its episode declares, outside the
+        # dysfunction counter. Held inside it, the limb was cleared outright
+        # when that counter reached zero at about thirty seconds, so an
+        # episode declaring a half life of one hundred and seventy three
+        # seconds ran this channel for thirty whatever it declared, while the
+        # liquidity and volatility limbs beside it ran for hundreds.
+        if abs(self.toxic_flow_bias) > 0.01:
+            self.toxic_flow_bias *= toxic_flow_decay
+        else:
             self.toxic_flow_bias = 0.0
 
         if abs(self._order_flow_imbalance) > 0.01:
@@ -564,6 +584,17 @@ class MarketEnvironment:
             self._price_anchor *= max(anchor_multiplier, 1e-6)
             self._price_anchor = max(self._price_anchor, 1e-6)
 
+    def configure_stress_overlay_decay(self, decay: Optional[float]) -> None:
+        """Set how fast the volatility and funding cost overlay decays.
+
+        Stated per tick, to match the liquidity limb, so that the two limbs
+        of one episode can be given one duration.
+        """
+        if decay is None:
+            return
+        self._stress_overlay_decay = max(0.80, min(_MAX_STRESS_DECAY, float(decay)))
+        self._shock_decay = self._stress_overlay_decay
+
     def apply_funding_volatility_shock(self, intensity: float,
                                        decay: float = 0.94):
         """Spike sigma and funding cost with gradual decay."""
@@ -571,7 +602,9 @@ class MarketEnvironment:
         if intensity <= 0:
             return
 
-        self._shock_decay = max(0.80, min(0.99, float(decay)))
+        if self._stress_overlay_decay is not None:
+            decay = self._stress_overlay_decay
+        self._shock_decay = max(0.80, min(_MAX_STRESS_DECAY, float(decay)))
         sigma_jump = (self.sigma_high - self.sigma_low) * intensity
         c_jump = (self.c_high - self.c_low) * intensity
         self._shock_sigma_overlay = max(self._shock_sigma_overlay, sigma_jump)
@@ -597,7 +630,8 @@ class MarketEnvironment:
                               anchor_strength_recovery: Optional[float] = None,
                               bg_target_ratio_recovery: Optional[float] = None,
                               toxic_flow_decay: Optional[float] = None,
-                              liquidity_shock_decay: Optional[float] = None):
+                              liquidity_shock_decay: Optional[float] = None,
+                              stress_overlay_decay: Optional[float] = None):
         """Trigger cancellations, MM withdrawal, stale quotes and toxic flow."""
         cancel_frac = max(0.0, min(1.0, float(cancel_frac)))
         intensity = cancel_frac if intensity is None else max(0.0, float(intensity))
@@ -642,9 +676,13 @@ class MarketEnvironment:
         if bg_target_ratio_recovery is not None:
             self._bg_target_ratio_recovery = max(0.001, float(bg_target_ratio_recovery))
         if toxic_flow_decay is not None:
-            self._toxic_flow_decay = max(0.50, min(0.99, float(toxic_flow_decay)))
+            self._toxic_flow_decay = max(0.50, min(_MAX_STRESS_DECAY, float(toxic_flow_decay)))
         if liquidity_shock_decay is not None:
-            self._liquidity_shock_decay = max(0.50, min(0.99, float(liquidity_shock_decay)))
+            self._liquidity_shock_decay = max(
+                0.50, min(_MAX_STRESS_DECAY, float(liquidity_shock_decay))
+            )
+        if stress_overlay_decay is not None:
+            self.configure_stress_overlay_decay(stress_overlay_decay)
         self._update_systemic_liquidity()
 
     def observe_order_flow(self, period_trades: List[dict]):
@@ -910,11 +948,25 @@ class MarketEnvironment:
         # dealer to leave an already strained sector does more damage than the
         # first did. The term is bounded by the gain, and systemic liquidity
         # keeps its own floor, so the loop cannot run away.
+        # Impaired dealer capacity multiplies the friction the market is
+        # already under instead of contributing a term of its own. Capacity
+        # binds when there is a shock to absorb, which is the finding this
+        # follows, and when the exogenous stress has decayed there is nothing
+        # left to amplify. Two additive forms were tried and neither is usable.
+        # A term in the level of impairment holds systemic liquidity at 1/(1+g)
+        # for as long as the sector is impaired, which for any gain above
+        # 1/0.55-1 sits under the liquidity a withdrawn dealer needs to return,
+        # and since the impairment is itself the consequence of dealers being
+        # out the state absorbs: measured on the dealer crisis the sector stayed
+        # wholly withdrawn for 586 periods of 1000 against 244 with the channel
+        # off. A term in the rise of impairment releases correctly but carries
+        # no force, moving impaired capacity by 0.002 where the level form moved
+        # it by 0.12. The multiplicative form amplifies and cannot latch.
         if self._dealer_cascade_gain > 0.0:
             span = max(1e-9, 1.0 - self._dealer_capacity_threshold)
-            excess = max(0.0, self._dealer_capacity_impairment
-                         - self._dealer_capacity_threshold) / span
-            friction += self._dealer_cascade_gain * min(1.0, excess) ** 2
+            excess = min(1.0, max(0.0, self._dealer_capacity_impairment
+                                  - self._dealer_capacity_threshold) / span)
+            friction *= 1.0 + self._dealer_cascade_gain * excess ** 2
 
         liquidity = 1.0 / (1.0 + friction)
         liquidity *= self._session_liquidity_multiplier

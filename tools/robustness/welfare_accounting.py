@@ -47,9 +47,20 @@ from main import (build_parser, _apply_preset_defaults, _resolve_main_routing,
 from tools.robustness.lp_pnl_corrected import components
 from tools.robustness.signatures import measurement_signature, model_signature
 
-PRESET = 'dealer_liquidity_crisis'
+PRESET = 'dash_for_cash_2020'
 N_ITER = 1000
-CRISIS = (0, 100)
+# The same window the resilience comparison uses. At a hundred periods this
+# was also shorter than the fastest exit a provider can complete, since the
+# least patient one needs a hundred and forty five, so a provider result read
+# over it could not register a departure the episode caused.
+CRISIS = (0, 150)
+# Matched to the total economic capital of the AMM side, reserves plus the
+# wallets its providers hold outside the pool, and to the pool's round trip
+# cost weighted by the realised distribution of customer trade sizes. Both are
+# read off the reserve arm before any comparison, in facility_arms.py.
+ARM_CAPITAL = 951_999.0
+ARM_SPREAD_BPS = 3.469
+POOL_ARMS = ('reserve', 'reallocation')
 ABSOLUTE_SIZE_BOUNDS = (5.0, 20.0)
 # The calibration maps one tick to one second and its funding anchor to 252
 # full FX trading days, not to every calendar second of the year.
@@ -98,8 +109,22 @@ class ArmWindow:
     # and those zeros is pulled towards zero by the seeds that carry no
     # information at all.
     lp_opening_capital: Optional[float] = 0.0
+    # Capital the providers hold outside the pool at the opening of the window.
+    # It is theirs and it is idle, so it carries the same opportunity cost as
+    # the capital inside, and an accounting that charged only the reserves
+    # understated what the arrangement ties up. At the calibrated size it is
+    # about two fifths again of the capital in the pool.
+    lp_wallet_capital: Optional[float] = 0.0
     lp_lvr: Optional[float] = 0.0
     lp_fees: Optional[float] = 0.0
+    # An order book arm holds the facility's capital in an obliged quoter, so
+    # there is no pool to read reserves and rebalancing loss from. Its capital
+    # is the quoter's equity at the opening of the window and its operating
+    # result is what that equity did over the window. Without these the whole
+    # provider side of the account was undefined for those arms, so a welfare
+    # comparison could only be run against a pool.
+    book_facility_capital: Optional[float] = None
+    book_facility_result: Optional[float] = None
     sponsor_transfer: float = 0.0
     dealer_withdrawal_mean: float = 0.0
     sponsor_rate_transfer: float = 0.0
@@ -117,12 +142,26 @@ class ArmWindow:
 
     @property
     def lp_window_measurable(self) -> bool:
+        if self.book_facility_capital is not None:
+            return self.book_facility_result is not None
         return None not in (self.lp_opening_capital, self.lp_lvr, self.lp_fees)
+
+    @property
+    def facility_capital(self) -> float:
+        """Capital the facility ties up over the window, wherever it sits."""
+        if self.book_facility_capital is not None:
+            return max(0.0, float(self.book_facility_capital))
+        if self.lp_opening_capital is None:
+            return float('nan')
+        return (max(0.0, float(self.lp_opening_capital))
+                + max(0.0, float(self.lp_wallet_capital or 0.0)))
 
     @property
     def lp_operating_result(self) -> float:
         if not self.lp_window_measurable:
             return float('nan')
+        if self.book_facility_capital is not None:
+            return float(self.book_facility_result)
         return self.lp_fees - self.lp_lvr
 
 
@@ -184,7 +223,8 @@ def account_pair(with_amm: ArmWindow, without_amm: ArmWindow,
     # nothing into the middle of the distribution of seeds that do.
     lp_measurable = with_amm.lp_window_measurable
     if lp_measurable:
-        capital_cost = (max(0.0, with_amm.lp_opening_capital)
+        committed = with_amm.facility_capital
+        capital_cost = (committed
                         * max(0.0, float(annual_capital_rate))
                         * max(0.0, float(window_seconds)) / SECONDS_PER_YEAR)
         private_lp = (with_amm.lp_operating_result + with_amm.sponsor_transfer
@@ -200,7 +240,7 @@ def account_pair(with_amm: ArmWindow, without_amm: ArmWindow,
                      if math.isfinite(user_benefit) and lp_measurable
                      else float('nan'))
 
-    opening = max(0.0, with_amm.lp_opening_capital) if lp_measurable else 0.0
+    opening = with_amm.facility_capital if lp_measurable else 0.0
     return {
         'estimand_scope': dict(ESTIMAND_SCOPE),
         'user_benefit_uses_routed_customer_fills_only': True,
@@ -253,7 +293,7 @@ def account_pair(with_amm: ArmWindow, without_amm: ArmWindow,
         'provider_private_result_after_subsidy_and_capital': private_lp,
         'sponsor_fiscal_result': sponsor,
         'provider_plus_sponsor_result': provider_plus_sponsor,
-        # ``None`` rather than ``False`` when there is no measured window: an
+        # ``None`` and not ``False`` when there is no measured window: an
         # identity that could not be evaluated has not been violated, and
         # counting it as a violation would report a data gap as an accounting
         # error.
@@ -364,7 +404,7 @@ def annual_frame(user_benefit_per_crisis_window: float,
         it, and no such split is claimed. An earlier version of this module
         carried a literal 0.69 as the arbitrage share of the loss with no
         measurement behind it anywhere in the repository. It has been removed
-        rather than carried forward, and nothing in this accounting depended
+        and not carried forward, and nothing in this accounting depended
         on it, since the whole of the loss is a transfer either way.
 
         What society does give up is the return the committed capital would
@@ -587,6 +627,21 @@ def withdrawal_window(sim, shock: int,
     return sum(finite) / len(finite) if finite else 0.0
 
 
+def lp_wallet_window(sim, shock: int,
+                     window: tuple[int, int] = CRISIS) -> Optional[float]:
+    """Value of the provider wallets at the opening of the window.
+
+    Read at the same instant as the reserves, and in the same currency, so the
+    two can be added into one capital base.
+    """
+    captured = getattr(sim, 'facility_window', None)
+    if captured is not None:
+        return captured.get('opening_wallets')
+    providers = [lp for pop in getattr(sim, 'lp_providers', []) or []
+                 for lp in getattr(pop, 'providers', [])]
+    return 0.0 if not providers else None
+
+
 def arm_window(sim, shock: int,
                window: tuple[int, int] = CRISIS) -> ArmWindow:
     notional, cost, buckets = execution_window(sim, shock, window)
@@ -595,11 +650,18 @@ def arm_window(sim, shock: int,
     )
     lp = lp_window(sim, shock, window)
     opening, lvr, fees = lp if lp is not None else (None, None, None)
+    wallets = lp_wallet_window(sim, shock, window) if lp is not None else None
+    captured = getattr(sim, 'facility_window', None) or {}
+    book_open = captured.get('opening_capital')
+    book_result = captured.get('operating_result')
     sponsor, rate, rebate = sponsor_window(sim, shock, window)
     return ArmWindow(
         executed_notional=notional,
         taker_execution_cost=cost,
         lp_opening_capital=opening,
+        lp_wallet_capital=wallets,
+        book_facility_capital=book_open,
+        book_facility_result=book_result,
         lp_lvr=lvr,
         lp_fees=fees,
         sponsor_transfer=sponsor,
@@ -613,13 +675,28 @@ def arm_window(sim, shock: int,
     )
 
 
-def run(seed: int, enable_amm: bool, lp_model: str = 'endogenous',
+def run(seed: int, arm, lp_model: str = 'endogenous',
         subsidy_rate: float = 0.0, loss_rebate_fraction: float = 0.0,
         response_scale: Optional[float] = None):
+    """One arm of the comparison on one seed.
+
+    ``arm`` names the facility, so that the welfare account carries the same
+    decomposition the resilience comparison does. Read as a flag it collapsed
+    to the presence of a pool, and every quantity below then attributed to the
+    facility what its capital, its obligation to quote and its schedule had
+    produced between them. A bare boolean is still accepted and means the
+    reserve priced pool or the dealer only control.
+    """
+    if isinstance(arm, bool):
+        arm = 'reserve' if arm else 'none'
+    arm = str(arm)
     argv = ['--preset', PRESET, '--seed', str(seed), '--n-iter', str(N_ITER),
             '--silent', '--amm-lp-model', lp_model,
+            '--facility-arm', arm, '--arm-spread-bps', repr(ARM_SPREAD_BPS),
             '--amm-lp-subsidy-rate', repr(float(subsidy_rate)),
             '--amm-lp-loss-rebate', repr(float(loss_rebate_fraction))]
+    if arm in ('dealer_of_last_resort', 'passive_book'):
+        argv.extend(['--arm-capital', repr(ARM_CAPITAL)])
     if response_scale is not None:
         argv.extend(['--amm-lp-response-scale', repr(float(response_scale))])
     parser = build_parser()
@@ -627,29 +704,85 @@ def run(seed: int, enable_amm: bool, lp_model: str = 'endogenous',
     _apply_preset_defaults(parser, args)
     args.venue_choice_rule = _resolve_main_routing(args, argv)
     _auto_stress_around_shock(args)
-    args.enable_amm = 1 if enable_amm else 0
-    if not enable_amm:
+    carries_pool = arm in POOL_ARMS
+    args.enable_amm = 1 if carries_pool else 0
+    if not carries_pool:
         args.amm_share_pct = 0.0
-    args.clob_amm_interaction = 'competition' if enable_amm else 'none'
+    args.clob_amm_interaction = 'competition' if carries_pool else 'none'
     _seed_all(seed)
     sim = build_sim(args)
-    sim.simulate(args.n_iter, silent=True)
-    return sim, int(args.shock_iter)
+    shock = int(args.shock_iter)
+    facility = next((t for t in sim.traders
+                     if getattr(t, 'is_facility_arm', False)), None)
+    providers = [lp for pop in getattr(sim, 'lp_providers', []) or []
+                 for lp in getattr(pop, 'providers', [])]
+
+    # Staged, because both the wallets a provider holds and the position a
+    # quoter carries are attributes of the agent at the current tick and not
+    # series. Read after a run taken in one step they report the end of the
+    # year: the wallets came back four times their size at the opening of the
+    # window, and the capital cost with them.
+    opening_tick = shock + CRISIS[0]
+    span = CRISIS[1] - CRISIS[0]
+    sim.simulate(opening_tick, silent=True)
+
+    def _fair():
+        series = getattr(sim.logger, 'fair_price_series', []) or []
+        return float(series[-1]) if series else float('nan')
+
+    opening_price = _fair()
+    opening_wallets = sum(float(lp.wallet_base) * opening_price
+                          + float(lp.wallet_cash) for lp in providers)
+    opening_capital = (float(facility.cash) + float(facility.assets) * opening_price
+                       if facility is not None else None)
+
+    # The quoter's result is accumulated the way the pool's is, period by
+    # period against a hold and rebalance benchmark, so that the two arms are
+    # measured on one construction. Marked instead at the price the market
+    # opened the year on, a position carried through a one per cent decline
+    # showed no loss at all and both order book arms reported a profit.
+    result = 0.0
+    if facility is not None:
+        cash, assets = float(facility.cash), float(facility.assets)
+        for _ in range(span):
+            sim.simulate(1, silent=True)
+            price = _fair()
+            new_cash, new_assets = float(facility.cash), float(facility.assets)
+            if math.isfinite(price):
+                result += (new_cash - cash) + (new_assets - assets) * price
+            cash, assets = new_cash, new_assets
+    else:
+        sim.simulate(span, silent=True)
+
+    remaining = int(args.n_iter) - opening_tick - span
+    if remaining > 0:
+        sim.simulate(remaining, silent=True)
+    sim.facility_window = {
+        'opening_capital': opening_capital,
+        'operating_result': result if facility is not None else None,
+        'opening_wallets': opening_wallets if providers else 0.0,
+    }
+    return sim, shock
 
 
 def measure(seed: int, annual_capital_rate: float = 0.029,
             lp_model: str = 'endogenous', subsidy_rate: float = 0.0,
             loss_rebate_fraction: float = 0.0,
-            response_scale: Optional[float] = None) -> dict:
-    without, shock0 = run(seed, False, lp_model, subsidy_rate,
+            response_scale: Optional[float] = None,
+            arm: str = 'reserve') -> dict:
+    """One arm against the dealer only control, on one seed.
+
+    The control is the same market in both, so the difference is the arm.
+    """
+    without, shock0 = run(seed, 'none', lp_model, subsidy_rate,
                           loss_rebate_fraction, response_scale)
-    with_amm, shock1 = run(seed, True, lp_model, subsidy_rate,
+    with_arm, shock1 = run(seed, arm, lp_model, subsidy_rate,
                            loss_rebate_fraction, response_scale)
     off = arm_window(without, shock0)
-    on = arm_window(with_amm, shock1)
+    on = arm_window(with_arm, shock1)
     result = account_pair(on, off, annual_capital_rate=annual_capital_rate,
                           window_seconds=float(CRISIS[1] - CRISIS[0]))
-    return {'seed': int(seed), 'with_amm': asdict(on),
+    return {'seed': int(seed), 'arm': arm, 'with_amm': asdict(on),
             'without_amm': asdict(off), 'accounting': result}
 
 
@@ -657,7 +790,7 @@ def aggregate(rows: Iterable[dict], bootstrap_draws: int = 5000,
               bootstrap_seed: int = 0) -> dict:
     rows = list(rows)
     # A seed whose provider window could not be measured has no identity to
-    # check, so it is counted apart rather than as a failure of the identity.
+    # check, so it is counted apart and not as a failure of the identity.
     transfer_failures = sum(
         row.get('accounting', {}).get('subsidy_transfer_cancels') is False
         for row in rows
@@ -701,7 +834,7 @@ def aggregate(rows: Iterable[dict], bootstrap_draws: int = 5000,
         'bootstrap_seed': int(bootstrap_seed),
         'subsidy_transfer_cancellation_failures': transfer_failures,
         'all_subsidy_transfers_cancel': bool(rows and transfer_failures == 0),
-        # Reported rather than absorbed: a median over fewer seeds than the
+        # Reported and not absorbed: a median over fewer seeds than the
         # run carries is a different claim from a median over all of them.
         'unmeasurable_lp_windows': unmeasurable_lp_windows,
         'total_welfare_identified': False,
@@ -756,9 +889,16 @@ def welfare_report_signature():
 
 
 def self_check() -> bool:
-    on = ArmWindow(1000.0, 4.0, 2000.0, 7.0, 5.0, 3.0, 0.2,
+    # Named, so that inserting a field cannot silently re-map the values. The
+    # positional form survived one such insertion by arithmetic coincidence,
+    # the shifted fees and loss still differing by the same two units, and a
+    # check that passes for the wrong reason is worse than one that fails.
+    on = ArmWindow(executed_notional=1000.0, taker_execution_cost=4.0,
+                   lp_opening_capital=2000.0, lp_lvr=7.0, lp_fees=5.0,
+                   sponsor_transfer=3.0, dealer_withdrawal_mean=0.2,
                    sponsor_rate_transfer=1.0, sponsor_loss_rebate=2.0)
-    off = ArmWindow(1000.0, 9.0, dealer_withdrawal_mean=0.1)
+    off = ArmWindow(executed_notional=1000.0, taker_execution_cost=9.0,
+                    dealer_withdrawal_mean=0.1)
     a = account_pair(on, off, annual_capital_rate=0.0, window_seconds=100.0)
     b = account_pair(ArmWindow(**{**asdict(on), 'sponsor_transfer': 300.0}), off,
                      annual_capital_rate=0.0, window_seconds=100.0)
@@ -794,13 +934,19 @@ def main() -> int:
     parser.add_argument('--bootstrap-draws', type=int, default=5000)
     parser.add_argument('--bootstrap-seed', type=int, default=0)
     parser.add_argument('--self-check', action='store_true')
+    parser.add_argument('--arm', default='reserve',
+                        choices=['reserve', 'dealer_of_last_resort',
+                                 'passive_book', 'reallocation'],
+                        help='facility measured against the dealer only '
+                             'control, so the welfare account carries the same '
+                             'decomposition the resilience comparison does')
     args = parser.parse_args()
     if args.self_check:
         ok = self_check()
         print('welfare accounting self-check:', 'pass' if ok else 'fail')
         return 0 if ok else 1
     jobs = [(seed, args.capital_rate, args.lp_model, args.subsidy_rate,
-             args.loss_rebate, args.response_scale)
+             args.loss_rebate, args.response_scale, args.arm)
             for seed in range(args.seed_start, args.seed_start + args.seeds)]
     if args.workers > 1:
         with ProcessPool(args.workers) as pool:

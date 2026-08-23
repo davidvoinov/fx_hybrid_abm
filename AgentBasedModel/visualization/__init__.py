@@ -1,8 +1,8 @@
 from AgentBasedModel.visualization.paper_style import (
     use_paper_style,
     PAPER_PALETTE,
-    COLOR_WITH_AMM,
-    COLOR_NO_AMM,
+    COLOR_TREATMENT,
+    COLOR_CONTROL,
     COLOR_GOOD,
     COLOR_BAD,
     COLOR_NEUTRAL,
@@ -13,10 +13,10 @@ from AgentBasedModel.visualization.paper_style import (
 # import ...`) executes this __init__, so main.py and downstream scripts pick
 # up the style without each call site having to opt in.
 use_paper_style()
-from AgentBasedModel.visualization.market import plot_price, plot_price_fundamental, plot_arbitrage, plot_dividend,\
-    plot_orders, plot_volatility_price, plot_volatility_return, plot_liquidity
-from AgentBasedModel.visualization.trader import plot_equity, plot_cash, plot_assets, plot_returns,\
-    plot_strategies, plot_strategies2, plot_sentiments, plot_sentiments2
+# The per agent plots of the general purpose model are gone with the
+# populations they drew: dividends, sentiments and strategy switching have
+# no counterpart in a dealer intermediated FX market, and the collector
+# behind them recorded a per agent snapshot every period that nothing read.
 from AgentBasedModel.visualization.venue_plots import (
     # H1
     plot_execution_cost_curves, plot_cost_decomposition, plot_total_market_depth,

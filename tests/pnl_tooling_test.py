@@ -168,7 +168,7 @@ def test_the_rule_table_agrees_with_the_code():
     # the default on the reduced form AMMProvider, a class the primary model
     # does not instantiate, so it held the table to a number no run ever used.
     cap = calibrated_default('amm_lp_max_adj', 0.0023873085271651773)
-    # Printed as a fraction rather than a decimal, so the check looks for the
+    # Printed as a fraction and not a decimal, so the check looks for the
     # denominator the module actually carries.
     denom = round(1.0 / cap)
     check_bool("the cap in the table is the cap in the module",

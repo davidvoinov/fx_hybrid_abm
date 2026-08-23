@@ -343,7 +343,7 @@ def decay_rate_from_peak(dev_series: Sequence[float], shock_iter: int,
     for offset, value in enumerate(window[peak_at:]):
         if value <= floor or value != value:
             # The path has reached the noise floor; fitting beyond it would
-            # measure the noise rather than the decay.
+            # measure the noise and not the decay.
             break
         xs.append(float(offset))
         ys.append(math.log(value))
@@ -616,7 +616,7 @@ def price_resilience_metrics(series: List[float], shock_iter: int,
                              target_mode: str = 'pre_shock_baseline') -> dict:
     """Price-centric resilience metrics for post-shock recovery studies.
 
-    Price recovery remains anchored to relative-dislocation closure rather than a
+    Price recovery remains anchored to relative-dislocation closure and not a
     very wide level band. The manuscript-style 0.5x–1.5x norm band is used for
     liquidity metrics, while price keeps a stricter event-study notion of
     recovery to avoid trivial immediate recovery after large price shocks.

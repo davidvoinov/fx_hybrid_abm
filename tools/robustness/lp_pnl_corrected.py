@@ -56,10 +56,21 @@ from tools.robustness.signatures import (
     model_signature_files,
 )
 
-PRESET = 'dealer_liquidity_crisis'
+# The identified March 2020 episode, as everywhere else in the panel. The
+# synthetic preset this replaces evacuated the whole dealer sector on every
+# seed, so a provider result measured on it was read against a scripted
+# outcome. lp_survival imports these, so the whole provider chain moves with
+# them.
+PRESET = 'dash_for_cash_2020'
 N_ITER = 1000
 CALM = (-160, -60)          # window offsets relative to the shock
-CRISIS = (0, 100)
+# A hundred and fifty periods, matching the resilience comparison. At a
+# hundred the window was shorter than the fastest exit a provider can
+# complete, since the least patient of them needs a hundred and forty five
+# periods of sustained shortfall, so no departure the episode caused could
+# appear inside it at all. At a hundred and fifty only the least patient can
+# complete one, which bounds the provider response without identifying it.
+CRISIS = (0, 150)
 
 
 RAW_DIR = os.path.join(ROOT, 'output', 'resilience', 'raw')
@@ -197,7 +208,7 @@ def _raw_record_matches_cell(rec, expected):
 def load_raw(bps, lp_model, strict=True):
     """Seeds measured under the current model, keyed by seed.
 
-    Records carrying a different signature are ignored rather than trusted,
+    Records carrying a different signature are ignored and not trusted,
     and the count of what was skipped is returned so a run can say out loud
     that its cache went stale.
     """
