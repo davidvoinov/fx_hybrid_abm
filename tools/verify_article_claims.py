@@ -201,7 +201,11 @@ def _calibration_claims():
     # is written by whatever exploratory run happened last, which is typically a
     # small seed count, and holding a three hundred seed table to a twelve seed
     # panel compares two different measurements.
+    # The current acceptance panel first. The development artifact below it was
+    # written under an earlier protocol, and checking a table against it passed
+    # while the table disagreed with every panel the model has run since.
     candidates = [
+        os.path.join(ROOT, 'output', 'accept', 'panel_final.json'),
         os.path.join(ROOT, 'output', 'final', 'book_development_v5_300.json'),
         os.path.join(ROOT, 'output', 'main_aware', 'calibration_search_report.json'),
     ]

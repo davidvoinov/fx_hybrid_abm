@@ -60,7 +60,7 @@ CRISIS = (0, 150)
 # read off the reserve arm before any comparison, in facility_arms.py.
 ARM_CAPITAL = 951_999.0
 ARM_SPREAD_BPS = 3.469
-POOL_ARMS = ('reserve', 'reallocation')
+POOL_ARMS = ('reserve', 'reserve_frozen', 'reallocation')
 ABSOLUTE_SIZE_BOUNDS = (5.0, 20.0)
 # The calibration maps one tick to one second and its funding anchor to 252
 # full FX trading days, not to every calendar second of the year.
@@ -935,7 +935,8 @@ def main() -> int:
     parser.add_argument('--bootstrap-seed', type=int, default=0)
     parser.add_argument('--self-check', action='store_true')
     parser.add_argument('--arm', default='reserve',
-                        choices=['reserve', 'dealer_of_last_resort',
+                        choices=['reserve', 'reserve_frozen',
+                                 'dealer_of_last_resort',
                                  'passive_book', 'reallocation'],
                         help='facility measured against the dealer only '
                              'control, so the welfare account carries the same '

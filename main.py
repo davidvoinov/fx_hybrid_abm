@@ -1,34 +1,35 @@
-"""
-main.py — Interactive demo of the multi-venue FX ABM.
+"""main.py — the entry point of the multi-venue FX agent based model.
 
-Base scenario (without any shocks):     
-    python3 main.py --seed 42 --preset baseline   
+The model is configured by calibration/primary_model.json, which is the single
+source of every default. Each command names a runner that carries its own seed
+commitment and its own provenance, and none of them reimplements another:
 
-Event simulations presets (with different shock types/mechanics):                                 
-    python3 main.py --seed 42 --preset mm_withdrawal
-    python3 main.py --seed 42 --preset flash_crash
-    python3 main.py --seed 42 --preset dealer_liquidity_crisis  
-    python3 main.py --seed 42 --preset funding_liquidity_shock   
-    python3 main.py --seed 42 --preset high_vol_stress           
+    python -m main help                    the commands and what each produces
+    python -m main run --preset baseline   one simulation, its summary and plots
+    python -m main accept                  the panel against the frozen targets
+    python -m main arms                    the resource matched facility arms
+    python -m main welfare --arm reserve   the welfare account for one arm
+    python -m main selection               the markout of the flow each venue fills
+    python -m main figures                 the figures of the article
+    python -m main calibrate               the coordinate search
+    python -m main config                  where each calibrated value came from
 
-Shock scenarios:
-    python3 main.py --seed 42 --shock-iter 350 --shock-mode realism --fundamental-shock-pct -12
-    python3 main.py --seed 42 --shock-iter 350 --shock-mode realism --liquidity-shock-frac 0.45
-    python3 main.py --seed 42 --shock-iter 350 --shock-mode realism --funding-vol-shock-intensity 1.0
-    python3 main.py --seed 42 --shock-iter 350 --shock-mode realism --order-flow-shock-qty 250
+An episode is named with --preset on the run command. The declared ones are
+baseline, mm_withdrawal, flash_crash, dealer_liquidity_crisis,
+funding_liquidity_shock, dash_for_cash_2020, dealer_capacity_contagion and
+high_vol_stress; the article rests on dash_for_cash_2020. Every model parameter
+is exposed as a flag on run, and a flag given explicitly overrides the episode
+it belongs to:
 
-Fixed liquidity share scenarios (no shocks, but different AMM/CLOB splits):
-     python3 main.py --seed 42 --amm-share 22
+    python -m main run --preset dash_for_cash_2020 --seed 42
+    python -m main run --shock-iter 350 --shock-mode realism --fundamental-shock-pct -12
 
-CLOB/AMM only:
-    python3 main.py --seed 42 --preset clob_only
-    python3 main.py --seed 42 --preset amm_only              
-
-Full list:
-    python3 main.py --help                                       
-
-All configurable parameters are exposed as CLI flags.
-Use  python3 main.py --help  for the full list.
+The entry point takes no comparison against the same market without a facility.
+Adding one moves committed capital, the obligation to keep quoting and the
+pricing rule at once, and a single switch pools the three; `arms` separates
+them and is the sanctioned comparison. Routing follows the liquidity aware rule
+by default, with --venue-choice-rule fixed_share available as the placebo that
+holds the facility open while taking the routing away from it.
 """
 
 import argparse
@@ -247,65 +248,6 @@ def _seed_all(seed: int):
     np.random.seed(seed)
 
 
-LEGACY_PRESETS = {
-    "default": dict(),
-    "clob_only": dict(
-        enable_amm=0,
-        amm_share_pct=0,
-    ),
-    "amm_only": dict(
-        n_mm=0,
-        clob_liq=0.1,
-        amm_share_pct=100,
-        amm_liq=3.0,
-    ),
-    "heavy_amm": dict(
-        amm_share_pct=60,
-        amm_liq=2.0,
-    ),
-    "heavy_clob": dict(
-        amm_share_pct=10,
-        clob_liq=2.0,
-    ),
-    "stress_test": dict(
-        stress_start=150,
-        stress_end=400,
-        sigma_low=0.01,
-        sigma_high=0.08,
-        c_low=0.001,
-        c_high=0.04,
-    ),
-    "shock_only": dict(
-        shock_iter=250,
-        shock_pct=-20.0,
-        # auto-stress kicks in unless --no-shock-stress
-    ),
-    "shock_stress": dict(
-        shock_iter=250,
-        shock_pct=-20.0,
-        stress_start=230,
-        stress_end=450,
-        sigma_low=0.01,
-        sigma_high=0.06,
-        c_low=0.002,
-        c_high=0.025,
-    ),
-    "low_liquidity": dict(
-        clob_liq=0.3,
-        amm_liq=0.3,
-        clob_volume=300,
-    ),
-    "fx_calibrated": dict(
-        sigma_low=0.01,
-        sigma_high=0.04,
-        c_low=0.002,
-        c_high=0.015,
-        stress_start=200,
-        stress_end=350,
-    ),
-}
-
-
 REALISM_PRESETS = {
     "baseline": dict(
         shock_mode="realism",
@@ -504,28 +446,14 @@ REALISM_PRESETS = {
 }
 
 
-PRESETS = {
-    **LEGACY_PRESETS,
-    **REALISM_PRESETS,
-}
-
-
-def _preset_family(name: str) -> str:
-    if name in REALISM_PRESETS:
-        return 'realism'
-    if name in LEGACY_PRESETS:
-        return 'legacy'
-    return 'custom'
+# One family remains. The bundles that named a fixed split between the
+# venues went with the counterfactual they served.
+PRESETS = dict(REALISM_PRESETS)
 
 
 def _format_preset_help() -> str:
-    legacy = ', '.join(LEGACY_PRESETS.keys())
-    realism = ', '.join(REALISM_PRESETS.keys())
-    return (
-        "Named parameter bundle (overridden by explicit flags).\n"
-        f"Legacy/research presets: {legacy}\n"
-        f"Realism presets: {realism}"
-    )
+    return ("Named parameter bundle (overridden by explicit flags).\n"
+            "Episodes: " + ', '.join(REALISM_PRESETS.keys()))
 
 
 # ── Auto-generate stress around shock (realism) ─────────────────
@@ -889,7 +817,7 @@ def print_robustness_summary(args: argparse.Namespace):
 
     W = 65
     print("\n" + "-" * W)
-    print("  H4: ROBUSTNESS SANITY CHECK")
+    print("  CROSS SEED DISPERSION")
     print("-" * W)
     print(f"  Seeds: {base_seed}..{base_seed + seeds - 1}  (n={seeds})")
     print(f"  Scenario type: {mode}")
@@ -944,10 +872,6 @@ def build_parser(default_venue_choice_rule: str = "liquidity_aware") -> argparse
                    help="Skip plot generation")
     g.add_argument("--no-summary", action="store_true",
                    help="Skip text summary")
-    g.add_argument("--comparison", action=argparse.BooleanOptionalAction,
-                   default=True,
-                   help="Run a second CLOB-only simulation and generate\n"
-                        "With-AMM vs Without-AMM comparison plots (default: on)")
     g.add_argument("--robustness-check", action="store_true",
                    help="Run a short multi-seed sanity check after the main simulation")
     g.add_argument("--robustness-seeds", type=int, default=5,
@@ -1151,13 +1075,16 @@ def build_parser(default_venue_choice_rule: str = "liquidity_aware") -> argparse
                    default=float(calibrated_default('fast_lp_base_withdraw_prob', 0.10)),
                    help="Probability that the fast automated provider does not quote at all in a period when conditions are calm")
     g.add_argument("--facility-arm",
-                   choices=['reserve', 'dealer_of_last_resort',
+                   choices=['reserve', 'reserve_frozen', 'dealer_of_last_resort',
                             'passive_book', 'reallocation', 'none'],
                    default='reserve', dest="facility_arm",
                    help="Which arm of the resource matched comparison to run. "
                         "Every arm carries the same committed capital and the "
                         "same inventory capacity and differs only in how it "
-                        "prices. reallocation funds the facility out of the "
+                        "prices. reserve_frozen is the same pool with its "
+                        "providers unable to resize, enter or leave, which "
+                        "separates the flight of provider capital from the "
+                        "schedule. reallocation funds the facility out of the "
                         "dealer sector, holding total market capital fixed.")
     g.add_argument("--arm-spread-bps", type=float, default=3.469,
                    dest="arm_spread_bps",
@@ -1638,7 +1565,8 @@ def print_config(args: argparse.Namespace):
             str(args.robustness_base_seed) if args.robustness_base_seed is not None else "auto")
     if args.preset:
         row("Preset applied", args.preset)
-        row("Preset family", _preset_family(args.preset))
+        row("Preset", "declared episode" if args.preset in PRESETS
+             else "not a declared episode")
     row("Primary config", PRIMARY_MODEL_PATH.name if PRIMARY_MODEL_PATH.exists() else "none")
     row("Run label", getattr(args, 'run_label', 'primary'))
 
@@ -1763,7 +1691,7 @@ def print_summary(sim: Simulator, acceptance_report: Optional[dict] = None):
     print(f"  Total trades: {summary.get('n_trades', 0)}")
 
     print("\n" + "-" * W)
-    print("  H1: EXECUTION COST COMPARISON  &  VENUE INTERACTION")
+    print("  EXECUTION COST AND VENUE INTERACTION")
     print("-" * W)
 
     Q_values = [1, 2, 5, 10, 20, 50]
@@ -1794,7 +1722,7 @@ def print_summary(sim: Simulator, acceptance_report: Optional[dict] = None):
 
     split_iter, split_title, phase_before, phase_after = _linkage_split_point(sim)
     print("\n" + "-" * W)
-    print("  H2: SYSTEMIC LINKAGE UNDER STRESS")
+    print("  SYSTEMIC LINKAGE UNDER STRESS")
     print("-" * W)
 
     if not logger.amm_cost_curves:
@@ -1947,7 +1875,7 @@ def print_summary(sim: Simulator, acceptance_report: Optional[dict] = None):
 
     if shock_iter is not None:
         print("\n" + "-" * W)
-        print("  H3: POST-SHOCK RECOVERY TIME")
+        print("  POST SHOCK RECOVERY TIME")
         print("-" * W)
 
         trades = pd.DataFrame(logger.trade_log) if logger.trade_log else pd.DataFrame()
@@ -2144,9 +2072,20 @@ def print_summary(sim: Simulator, acceptance_report: Optional[dict] = None):
         print("\n" + "-" * W)
         print("  PRIMARY MODEL ACCEPTANCE")
         print("-" * W)
-        print(f"  Status:       {acc.get('status', 'fail').upper()}")
-        print(f"  Passed:       {acc.get('passed_targets', 0)}/{acc.get('evaluated_targets', 0)}")
-        print(f"  Objective:    {_fmt_acceptance_value(acc.get('objective_score', float('nan')))}")
+        # A run that measured no target has produced no evidence, which is the
+        # ordinary case for a short exploratory one, and calling that a failed
+        # panel reads as a verdict the run never reached. The verdict against
+        # the frozen matrix belongs to ``accept``, on its own seed commitment.
+        evaluated = int(acc.get('evaluated_targets', 0) or 0)
+        if evaluated == 0:
+            print("  Status:       not evaluated on this run")
+            print(f"  Measurable:   0 of {len(acceptance_report.get('targets', []))}"
+                  " targets; the verdict is the business of `accept`")
+        else:
+            print(f"  Status:       {acc.get('status', 'fail').upper()}")
+            print(f"  Passed:       {acc.get('passed_targets', 0)}/{evaluated}")
+            print("  Objective:    "
+                  f"{_fmt_acceptance_value(acc.get('objective_score', float('nan')))}")
         for item in acceptance_report.get('targets', []):
             if item.get('status') == 'not_evaluable':
                 continue
@@ -2560,8 +2499,6 @@ def _resolve_main_routing(args: argparse.Namespace, argv: list[str]) -> str:
         return args.venue_choice_rule
     if _cli_flag_present('--amm-share', argv):
         return 'fixed_share'
-    if args.preset in LEGACY_PRESETS and 'amm_share_pct' in PRESETS.get(args.preset, {}):
-        return 'fixed_share'
     return args.venue_choice_rule
 
 
@@ -2637,6 +2574,7 @@ COMMANDS = {
     'arms': 'the resource matched comparison of the facility arms',
     'welfare': 'the welfare account for one arm against the dealer only control',
     'selection': 'the markout of the flow each venue fills, calm against crisis',
+    'figures': 'the figures of the article, redrawn from the current artifacts',
     'calibrate': 'the coordinate search over the declared parameters',
     'config': 'the calibrated configuration and where each value came from',
 }
@@ -2681,6 +2619,21 @@ def main(argv: Optional[list[str]] = None) -> int:
         args.venue_choice_rule = _resolve_main_routing(args, rest)
         print_config(args)
         return 0
+    if command == 'figures':
+        from AgentBasedModel.visualization.paper_figures import ALL, draw_all
+        drawn = draw_all()
+        for path in drawn:
+            print(os.path.relpath(path))
+        # A figure that cannot be drawn leaves the article carrying the one the
+        # previous run left behind, which is worse than carrying none, so a
+        # partial set is reported as a failure and not as a warning.
+        missing = len(ALL) - len(drawn)
+        if missing:
+            print(f'{missing} of {len(ALL)} figures were not drawn',
+                  file=sys.stderr)
+            return 1
+        return 0
+
     def _delegate(entry, name, extra=()):
         """Run a module entry point that reads sys.argv, with our arguments."""
         saved, sys.argv = sys.argv, [name] + list(extra) + rest

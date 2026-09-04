@@ -1878,8 +1878,8 @@ def test_flash_crash_preset():
     main_module._apply_preset_defaults(parser, args)
 
     check_bool("Flash crash is a realism preset",
-               main_module._preset_family(args.preset) == 'realism',
-               f"preset_family={main_module._preset_family(args.preset)}")
+               args.preset in main_module.REALISM_PRESETS,
+               f"preset={args.preset}")
     check_bool("Flash crash does not impose a fundamental repricing",
                args.fundamental_shock_pct == 0.0,
                f"fundamental_shock_pct={args.fundamental_shock_pct}")
@@ -1903,8 +1903,8 @@ def test_mm_withdrawal_preset():
     main_module._apply_preset_defaults(parser, args)
 
     check_bool("MM withdrawal remains a realism preset",
-               main_module._preset_family(args.preset) == 'realism',
-               f"preset_family={main_module._preset_family(args.preset)}")
+               args.preset in main_module.REALISM_PRESETS,
+               f"preset={args.preset}")
     check_bool("MM withdrawal keeps no permanent fair-value shift",
                args.fundamental_shock_pct == 0.0,
                f"fundamental_shock_pct={args.fundamental_shock_pct}")
@@ -1957,8 +1957,8 @@ def test_funding_liquidity_shock_preset():
     main_module._apply_preset_defaults(parser, args)
 
     check_bool("Funding liquidity shock is a realism preset",
-               main_module._preset_family(args.preset) == 'realism',
-               f"preset_family={main_module._preset_family(args.preset)}")
+               args.preset in main_module.REALISM_PRESETS,
+               f"preset={args.preset}")
     check_bool("Funding liquidity shock does not impose a permanent fair-value shift",
                args.fundamental_shock_pct == 0.0,
                f"fundamental_shock_pct={args.fundamental_shock_pct}")

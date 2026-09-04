@@ -164,6 +164,8 @@ class Simulator:
             else _isolated_venue_rng('fx_scheduler')
         )
         self.lp_providers = lp_providers or []
+        # Set by the frozen arm; consumed when the shock fires.
+        self.freeze_provider_capital_on_shock = False
         self.arbitrageur = arbitrageur
         self.logger = logger
 
@@ -530,6 +532,16 @@ class Simulator:
         funding_vol_intensity = max(0.0, float(config.get('funding_vol_intensity', 0.0) or 0.0))
         order_flow_side = self._resolve_realism_shock_side(config)
         direction = 1.0 if order_flow_side == 'buy' else -1.0
+
+        if self.freeze_provider_capital_on_shock:
+            for population in self.lp_providers or ():
+                population.kappa = 0.0
+                population.allow_exit = False
+                population.allow_entry = False
+                for provider in getattr(population, 'providers', ()):
+                    provider.kappa = 0.0
+                    provider.exit_patience = 10 ** 9
+                    provider.entry_patience = 10 ** 9
 
         if self.env is not None:
             # Before either limb fires: the funding shock runs first and sets
@@ -926,8 +938,7 @@ class Simulator:
                    # alists (n_fx_fund) which consume liquidity via market
                    # orders. Heterogeneous strategy mix is consistent with
                    # the literature on FX participant types: macro funds /
-                   # CTAs (Fundamentalist), trend followers (Chartist),
-                   # and regime-switching hedge funds (Universalist). Kept
+                   # CTAs (Fundamentalist). Kept
                    # small (2/1/1 = 4 extra agents) so the calibrated
                    # dealer pack remains the primary liquidity supplier.
                    n_clob_fund: int = calibrated_default('n_clob_fund', 2),
@@ -1269,6 +1280,16 @@ class Simulator:
         # facility's capital out of the dealers, which is the only arm that
         # answers the objection that the treatment market is simply richer.
         _arm = str(facility_arm or 'reserve')
+        # The reserve priced pool with its capital held still from the shock
+        # onward. Providers neither resize their commitment nor leave once the
+        # episode begins, so the contrast against the ordinary pool isolates
+        # what the flight of provider capital costs the market, and the
+        # contrast against the obliged quoter isolates the pricing schedule
+        # with that flight taken out of it. The freeze starts at the shock and
+        # not at construction, so the two arms enter the window having taken
+        # the same decisions on the same draws and differ only in what they do
+        # inside it.
+        _capital_frozen = (_arm == 'reserve_frozen')
         _dealer_cash = 7e4
         _arm_capital = float(arm_capital) if arm_capital and arm_capital > 0 else 0.0
         if _arm == 'reallocation' and _arm_capital > 0:
@@ -1296,9 +1317,9 @@ class Simulator:
         # Only the two reserve priced arms carry a pool. The order book arms
         # put the same capital into an obliged quoter instead, which is the
         # contrast that separates the schedule from standing availability.
-        if _arm not in ('reserve', 'reallocation'):
+        if _arm not in ('reserve', 'reserve_frozen', 'reallocation'):
             enable_amm = 0
-        if _arm_capital > 0 and _arm in ('reserve', 'reallocation'):
+        if _arm_capital > 0 and _arm in ('reserve', 'reserve_frozen', 'reallocation'):
             # Reserves are held half in each currency, so a budget of K in
             # quote value is K/2 of quote and K/(2p) of base.
             eff_hfmm_res = _arm_capital / (2.0 * max(price, 1e-9))
@@ -1713,12 +1734,12 @@ class Simulator:
         )
 
         # Full book-agent list (the retired trend and switching
-        # need sentiment / strategy updates each iteration).
+        # need per period behavioural updates).
         all_book_agents = list(book_agents)
         if mm is not None:
             all_book_agents.append(mm)
 
-        return cls(
+        built = cls(
             exchange=exchange,
             traders=all_book_agents,
             clob=clob,
@@ -1751,6 +1772,8 @@ class Simulator:
                 'stress_overlay_decay': stress_overlay_decay,
             },
         )
+        built.freeze_provider_capital_on_shock = _capital_frozen
+        return built
 
     @classmethod
     def default_fx_no_amm(cls, **kwargs) -> Simulator:

@@ -71,6 +71,7 @@ sys.path.insert(0, ROOT)
 
 from main import (build_parser, _apply_preset_defaults, _resolve_main_routing,
                   _auto_stress_around_shock, _seed_all, build_sim)
+from AgentBasedModel.metrics.resilience import decay_rate_from_peak
 from tools.robustness.signatures import measurement_signature, model_signature
 
 PRESET = 'dash_for_cash_2020'
@@ -99,13 +100,18 @@ RECOVERY_FRACTION = 0.5
 RECOVERY_WINDOW = 5
 ARM_CAPITAL = 951_999.0
 ARM_SPREAD_BPS = 3.469
-ARMS = ('none', 'reserve', 'dealer_of_last_resort', 'passive_book')
+ARMS = ('none', 'reserve', 'reserve_frozen', 'dealer_of_last_resort',
+        'passive_book')
 # Sized to what the dealer sector can give up while still quoting, which is
 # half the cash of each of the five dealers.
 REALLOCATION_CAPITAL = 175_000.0
+# The three add up: reserve less control is the sum of the three rows below,
+# which is what makes the decomposition a decomposition and not a set of
+# comparisons that happen to share a control.
 CONTRASTS = (
-    ('pricing_schedule', 'reserve', 'dealer_of_last_resort'),
-    ('standing_availability', 'dealer_of_last_resort', 'none'),
+    ('capital_flight', 'reserve', 'reserve_frozen'),
+    ('pricing_schedule', 'reserve_frozen', 'dealer_of_last_resort'),
+    ('committed_quoting', 'dealer_of_last_resort', 'none'),
 )
 
 
@@ -186,6 +192,20 @@ def _run(task):
                           mode='valid') if win.size >= RECOVERY_WINDOW
               else np.asarray([], dtype=float))
 
+    # Resilience in the standard sense has three parts: how far the market is
+    # displaced, how fast the displacement decays, and how long it takes to
+    # come back. Amplitude is the peak below and persistence the excess; this
+    # is the rate, fitted to the deviation from its own peak, which does not
+    # saturate the way a crossing time does when one arm never leaves the band.
+    decay = half_life = fit_quality = float('nan')
+    if math.isfinite(base) and base > 0 and win.size:
+        deviation = [(v - base) / base * 100.0 for v in win]
+        fitted = decay_rate_from_peak(deviation, 0, horizon=int(win.size))
+        if isinstance(fitted, dict):
+            decay = float(fitted.get('decay_rate_per_step') or float('nan'))
+            half_life = float(fitted.get('decay_half_life_steps') or float('nan'))
+            fit_quality = float(fitted.get('decay_r_squared') or float('nan'))
+
     book = np.asarray(sim.logger.clob_qspr, dtype=float)[lo:hi]
     book = book[np.isfinite(book)]
 
@@ -221,6 +241,9 @@ def _run(task):
         'excess': float(np.sum(np.maximum(0.0, win - base))) if win.size else float('nan'),
         'book_only_peak': float(np.max(book)) if book.size else float('nan'),
         'unavailable_share': unavailable,
+        'decay_rate': decay,
+        'decay_half_life': half_life,
+        'decay_fit_quality': fit_quality,
         # Realised cost is what customers actually paid, so it carries the
         # mix of sizes, venues and moments each arm produced: a difference
         # between arms is a difference in price and in composition together.
@@ -305,10 +328,18 @@ def main(argv=None):
         cost = _interval([rowset[s]['cost'] - control[s]['cost'] for s in common], seed=1)
         quoted = _interval([rowset[s]['quoted_cost'] - control[s]['quoted_cost']
                             for s in common], seed=8)
+        # Resilience decomposes into amplitude, decay and persistence, so each
+        # arm carries all three against the control and not the peak alone.
+        excess = _interval([rowset[s]['excess'] - control[s]['excess']
+                            for s in common], seed=31)
+        decay = _interval([rowset[s]['decay_rate'] - control[s]['decay_rate']
+                           for s in common], seed=32)
         report['arms'][arm] = {
             'full_evacuation_rate': float(evacuated),
             'unavailable_share_median': withdrawal,
             'delta_peak': {'mean': peak[0], 'ci': [peak[1], peak[2]]},
+            'delta_excess': {'mean': excess[0], 'ci': [excess[1], excess[2]]},
+            'delta_decay_rate': {'mean': decay[0], 'ci': [decay[1], decay[2]]},
             'delta_cost': {'mean': cost[0], 'ci': [cost[1], cost[2]]},
             'delta_quoted_cost': {'mean': quoted[0], 'ci': [quoted[1], quoted[2]]},
             'n': len(common),
@@ -360,12 +391,15 @@ def main(argv=None):
                             for s in common], seed=9)
         speed = _interval([_time_to(a[s], _bar(s)) - _time_to(b[s], _bar(s))
                            for s in common], seed=7)
+        decay = _interval([a[s]['decay_rate'] - b[s]['decay_rate']
+                           for s in common], seed=8)
         report['contrasts'][name] = {
             'left': left, 'right': right, 'n': len(common),
             'delta_peak': {'mean': peak[0], 'ci': [peak[1], peak[2]]},
             'delta_excess': {'mean': excess[0], 'ci': [excess[1], excess[2]]},
             'delta_cost': {'mean': cost[0], 'ci': [cost[1], cost[2]]},
             'delta_recovery': {'mean': speed[0], 'ci': [speed[1], speed[2]]},
+            'delta_decay_rate': {'mean': decay[0], 'ci': [decay[1], decay[2]]},
             'delta_quoted_cost': {'mean': quoted[0], 'ci': [quoted[1], quoted[2]]},
         }
         print(f'  {name:24s} {left} less {right}')
@@ -377,6 +411,8 @@ def main(argv=None):
               '  quoted at one size')
         print(f'{"":26s} speed  {speed[0]:+.1f} [{speed[1]:+.1f},{speed[2]:+.1f}]'
               ' periods to recover')
+        print(f'{"":26s} decay  {decay[0]:+.4f} [{decay[1]:+.4f},{decay[2]:+.4f}]'
+              ' per period')
 
     print(f'\nfunding source, facility held at {REALLOCATION_CAPITAL:,.0f} '
           f'quote units in both')
@@ -391,6 +427,33 @@ def main(argv=None):
         }
         print(f'  taken from the dealers less added to the market, {label:5s}'
               f' {stat[0]:+.2f} [{stat[1]:+.2f},{stat[2]:+.2f}]')
+
+    # The decomposition has to add up, or it is not one.
+    total = _interval([by_arm['reserve'][s]['peak'] - control[s]['peak']
+                       for s in sorted(set(by_arm['reserve']) & set(control))],
+                      seed=12)
+    parts = sum(report['contrasts'][name]['delta_peak']['mean']
+                for name, _, _ in CONTRASTS)
+    # The sum telescopes only while every contrast is read on the same seeds.
+    # Where an arm is missing a seed the intermediate terms stop cancelling and
+    # the three channels no longer account for the whole effect, which is a
+    # failure of the decomposition and not a rounding matter, so it is checked
+    # here and not left to a reader of the printed line.
+    residual = parts - total[0]
+    tolerance = max(1e-6, 1e-3 * abs(total[0]))
+    print(f'\n  the three channels sum to {parts:+.2f} on the peak against a '
+          f'total effect of {total[0]:+.2f}, residual {residual:+.2e}')
+    report['decomposition_check'] = {'sum_of_channels': parts,
+                                     'total_effect': total[0],
+                                     'residual': residual,
+                                     'tolerance': tolerance,
+                                     'holds': abs(residual) <= tolerance}
+    if abs(residual) > tolerance:
+        raise AssertionError(
+            f'the decomposition does not close: the channels sum to {parts:+.6f} '
+            f'against a total of {total[0]:+.6f}, residual {residual:+.3e} '
+            f'against a tolerance of {tolerance:.3e}. The contrasts are read on '
+            f'different seed sets, so the intermediate arms do not cancel.')
 
     digest = model_signature()
     report['provenance'] = {

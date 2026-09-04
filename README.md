@@ -10,7 +10,7 @@ pip install -r requirements.txt
 ## Running the model
 
 Every default comes from `calibration/primary_model.json`, which is the single
-source of the configuration. The entry point names the workflows and not
+source of the configuration. The entry point names the workflows instead of
 reimplementing them, so each command takes the options of the runner behind it.
 
 ```bash
@@ -20,6 +20,8 @@ python -m main run             # one simulation of a scenario, with its plots
 python -m main accept          # the acceptance panel against the frozen targets
 python -m main arms            # the resource matched comparison of the arms
 python -m main welfare --arm reserve
+python -m main selection       # the markout of the flow each venue fills
+python -m main figures         # the figures of the article, from the current artifacts
 python -m main calibrate       # the coordinate search over the declared parameters
 ```
 

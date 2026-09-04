@@ -2747,8 +2747,15 @@ class Fundamentalist(Trader):
         # latent value itself; see ``_observed_value``.
         pf = self._observed_value()
         if pf is None:
-            pf = round(self.evaluate(self.market.dividend(self.access),
-                                     self.market.risk_free), 1)
+            # This model has no dividend. The class once fell back to a
+            # discounted dividend stream for stock market scenarios with no
+            # environment attached, a branch that is never taken here: over a
+            # four hundred period run the observed value is used four thousand
+            # times and the fallback none. A currency pair has no such stream,
+            # so a missing environment is an error and not a case to serve.
+            raise RuntimeError(
+                'a fundamentalist needs an environment to read a value from'
+            )
         p = self.market.price()
         spread = self.market.spread()
         t_cost = self.market.transaction_cost

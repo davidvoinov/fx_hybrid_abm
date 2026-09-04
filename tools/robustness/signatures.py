@@ -23,10 +23,18 @@ def calibration_semantics(data):
 
 
 def model_signature_files(root=ROOT):
+    """Files that can change a simulated trajectory.
+
+    The plotting package is not among them. It reads the artifacts a run has
+    already written and cannot reach the run itself, so an edit to a figure
+    invalidated the provenance of every stored panel and forced a recompute
+    that could not have produced a different number.
+    """
     out = []
     base = os.path.join(root, 'AgentBasedModel')
     for dirpath, dirnames, filenames in os.walk(base):
-        dirnames[:] = [name for name in dirnames if name != '__pycache__']
+        dirnames[:] = [name for name in dirnames
+                       if name not in ('__pycache__', 'visualization')]
         for name in filenames:
             if name.endswith('.py'):
                 out.append(os.path.relpath(os.path.join(dirpath, name), root))

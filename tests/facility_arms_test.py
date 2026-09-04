@@ -287,3 +287,87 @@ def test_the_agent_table_describes_the_model_that_runs():
         assert str(defaults[name]) in tabulated, (
             f'{name} is {defaults[name]} in the calibration and does not '
             f'appear among the tabulated counts {sorted(tabulated)}')
+
+
+def test_the_frozen_arm_holds_its_provider_capital_from_the_shock():
+    """The pool with its capital held still, and only from the shock.
+
+    Providers pull capital out of the pool through the crisis, so the ordinary
+    reserve arm differs from an obliged quoter in the pricing schedule and in
+    that flight together. Freezing the population separates them. The freeze
+    starts at the shock and not at construction, so the two pools enter the
+    window having taken the same decisions on the same draws.
+    """
+    def _capital(sim):
+        pool = list(sim.amm_pools.values())[0]
+        price = float(sim.logger.fair_price_series[-1])
+        return float(pool.x) * price + float(pool.y)
+
+    def _participation(sim):
+        """What a provider decides about taking part, in both its forms.
+
+        Retained capital is a consequence and not the mechanism, so the
+        decision is what is counted. Providers leave in two ways and the
+        discrete one is the rarer: over a window of this length they resize
+        their holding continuously and take no exit at all, so counting only
+        exits and entries would report a frozen population and an ordinary one
+        as identical.
+        """
+        events, tokens = 0, 0.0
+        for population in sim.lp_providers or ():
+            for provider in getattr(population, 'providers', ()):
+                events += (int(provider.exit_count) + int(provider.entry_count)
+                           + int(provider.reentry_count))
+                tokens += float(provider.tokens)
+        return events, tokens
+
+    def _run(arm):
+        # Built and run on its own, because the two share the global random
+        # state and running them by turns inside one process would give the
+        # second a stream the first had already consumed. The runner gives
+        # each arm its own process, which is where this matters.
+        sim, args = _build(arm)
+        shock = int(args.shock_iter)
+        sim.simulate(shock, silent=True)
+        opening, opening_state = _capital(sim), _participation(sim)
+        sim.simulate(150, silent=True)
+        return sim, opening, _capital(sim), opening_state, _participation(sim)
+
+    (ordinary, open_ordinary, close_ordinary,
+     ev_open_ordinary, ev_close_ordinary) = _run('reserve')
+    (frozen, open_frozen, close_frozen,
+     ev_open_frozen, ev_close_frozen) = _run('reserve_frozen')
+    assert frozen.freeze_provider_capital_on_shock is True
+    assert ordinary.freeze_provider_capital_on_shock is False
+    assert open_ordinary == pytest.approx(open_frozen, rel=1e-9), (
+        'the arms must enter the window with the same capital')
+
+    # The mechanism itself: after the shock the frozen population takes no
+    # decision at all, and none of its providers can resize.
+    assert ev_close_frozen[0] == ev_open_frozen[0], (
+        f'the frozen population took {ev_close_frozen[0] - ev_open_frozen[0]} '
+        f'discrete participation decisions after the shock and must take none')
+    assert ev_close_frozen[1] == pytest.approx(ev_open_frozen[1], rel=1e-12), (
+        f'the frozen population resized from {ev_open_frozen[1]:.6f} to '
+        f'{ev_close_frozen[1]:.6f} tokens after the shock and must hold still')
+    for population in frozen.lp_providers or ():
+        assert float(population.kappa) == 0.0
+        assert population.allow_exit is False and population.allow_entry is False
+        for provider in getattr(population, 'providers', ()):
+            assert float(provider.kappa) == 0.0
+
+    # The contrast is only informative where the ordinary arm did move, so the
+    # comparison is stated against a population that actually took decisions.
+    assert ev_close_ordinary[1] != pytest.approx(ev_open_ordinary[1], rel=1e-12), (
+        'the ordinary population held its holding still as well, so the two '
+        'arms do not separate the flight of provider capital in this window')
+
+    # Retention is reported rather than gated on a round number. The pool is
+    # frozen in its participation and not in its reserves, which go on moving
+    # with trading and with arbitrage, so its capital is not expected to be
+    # exactly conserved.
+    kept_ordinary = close_ordinary / open_ordinary
+    kept_frozen = close_frozen / open_frozen
+    assert kept_ordinary < kept_frozen, (
+        f'the ordinary pool should lose capital the frozen one keeps: '
+        f'{kept_ordinary:.1%} against {kept_frozen:.1%}')
