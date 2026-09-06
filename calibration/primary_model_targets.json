@@ -1,5 +1,5 @@
 {
-  "model_name": "primary_fx_micromarket",
+  "model_name": "eurchf_fx_micromarket",
   "version": "2026-08-21a",
   "scope": "Scenario-aware calibration matrix for the single primary FX micromarket model.",
   "ingestion_method": "Semi-automated pypdf extraction plus hand-curated scale-matched proxies where the available literature is not directly in model units.",
@@ -11,16 +11,16 @@
       "description": "Primary baseline without explicit exogenous shock."
     },
     {
-      "name": "dash_for_cash_2020",
-      "preset": "dash_for_cash_2020",
-      "n_iter": 1000,
-      "description": "Identified March 2020 episode, used for the withdrawal and price discovery targets. It replaces a synthetic dealer crisis preset whose script evacuated the entire dealer sector on every seed, which made the mechanism checks read an imposed outcome."
-    },
-    {
       "name": "funding_liquidity_shock",
       "preset": "funding_liquidity_shock",
       "n_iter": 1000,
       "description": "Funding-liquidity stress scenario for propagation metrics."
+    },
+    {
+      "name": "snb_floor_removal_2015",
+      "preset": "snb_floor_removal_2015",
+      "n_iter": 1000,
+      "description": "Removal of the Swiss franc floor on 15 January 2015. The repricing is pinned by the ECB daily reference rate, which moved from 1.2010 to 1.0280; the dislocation around it is an outcome of the model and is checked against the crisis targets of Breedon, Chen, Ranaldo and Vause."
     }
   ],
   "targets": [
@@ -75,7 +75,7 @@
       "units": "model base units",
       "confidence": "none",
       "match_type": "unidentified_diagnostic",
-      "ingestion_note": "REPORTED ONLY, AND RENAMED 2026-08-23. Three things were wrong with this record. It was called near_touch_depth and described as one sided depth at the best bid and ask, while the series behind it is the smaller side within twenty five basis points of the mid, a band of some twenty seven pips: the realised value near four hundred base units is that band and not the touch, which stands at single digits. It cited a study of ASX equities, a different asset class with no designated market makers, for a foreign exchange observable, and a reader of this matrix saw that citation beside an FX target. There is no published EBS depth statistic identified for it, so the source now says so. What is available is a scale: EBS Spot average daily notional of 55.8 billion dollars over 86,400 seconds against the model’s realised 0.456 base units per second puts one base unit near 1.3 million euro, which is close to the one million minimum trade size EBS enforces. On that scale the touch holds a few million euro, which is the right order for this venue. The quantity carries no band and no weight until a published depth statistic is identified for it."
+      "ingestion_note": "REPORTED ONLY, AND RENAMED 2026-08-23. Three things were wrong with this record. It was called near_touch_depth and described as one sided depth at the best bid and ask, while the series behind it is the smaller side within twenty five basis points of the mid, a band of some twenty seven pips: the realised value near four hundred base units is that band and not the touch, which stands at single digits. It cited a study of ASX equities, a different asset class with no designated market makers, for a foreign exchange observable, and a reader of this matrix saw that citation beside an FX target. There is no published EBS depth statistic identified for it, so the source now says so. What is available is a scale: EBS Spot average daily notional of 55.8 billion dollars over 86,400 seconds against the model's realised 0.456 base units per second puts one base unit near 1.3 million euro, which is close to the one million minimum trade size EBS enforces. On that scale the touch holds a few million euro, which is the right order for this venue. The quantity carries no band and no weight until a published depth statistic is identified for it."
     },
     {
       "observable": "order_flow_autocorrelation",
@@ -157,7 +157,7 @@
     },
     {
       "observable": "dealer_withdrawal_share",
-      "evaluation_scenario": "dash_for_cash_2020",
+      "evaluation_scenario": "snb_floor_removal_2015",
       "source": "bis.pdf",
       "market_scope": "dealer balance-sheet constrained stress episodes",
       "statistic": "share of dealers withdrawn during the shock window",
@@ -360,33 +360,33 @@
       "ingestion_note": "The model maps one tick to one second and estimates the lifetime median with the same right-censoring rule used for bank quotes. Independent per-order clocks replace the former provider-wide refresh cycle. This is a separate gate from bank order life, so the bank calibration cannot be obtained by relabelling all providers as slow; atom and synchronization checks also prevent a configured three-second clock from passing through a bulk cancellation pulse."
     },
     {
-      "observable": "dealer_maker_volume_share",
-      "evaluation_scenario": "baseline_primary",
-      "source": "CME Group, Building a Healthy FX Marketplace (2023), and ECB FXCG CME/LSEG presentation (2026), slide 5",
+      "observable": "dealer_maker_volume_share_pre_event",
+      "evaluation_scenario": "snb_floor_removal_2015",
+      "source": "Breedon, Chen, Ranaldo and Vause, Bank of England Staff Working Paper 711 (2018), Table 1",
       "source_urls": [
-        "https://www.cmegroup.com/articles/2023/building-a-healthy-fx-marketplace.html",
-        "https://www.ecb.europa.eu/paym/groups/pdf/fxcg/2026/20260625/Item-3-Presentation-CME-LSEG.pdf"
+        "https://www.bankofengland.co.uk/-/media/boe/files/working-paper/2018/judgement-day-algorithmic-trading-around-the-swiss-franc-cap-removal.pdf"
       ],
-      "market_scope": "executed passive volume on EBS, bank versus non-bank",
-      "statistic": "bank-dealer share of executed passive CLOB volume",
+      "market_scope": "executed passive volume on EBS Market in EUR/CHF before 15 January 2015, bank versus professional trading firm",
+      "statistic": "bank-dealer share of executed passive CLOB volume, up to the repricing",
       "parameter_mapping": [
         "n_mm",
         "n_fast_lp",
         "fast_lp_base_qty",
-        "mm_d0_base"
+        "mm_d0_base",
+        "fast_lp_base_withdraw_prob"
       ],
       "objective_weight": 1.0,
       "gating": true,
       "block": "participant_composition",
       "units": "share",
       "target_range": {
-        "low": 0.55,
-        "high": 0.85
+        "low": 0.85,
+        "high": 0.97
       },
-      "confidence": "medium",
-      "match_type": "derived_from_two_primary_statistics",
-      "source_excerpt": "Banks constitute 62% of EBS Market volume; bank make:take is 60:40 and non-bank make:take is 37:63.",
-      "ingestion_note": "This gate is on executed maker volume by choice, not touch ownership or the share of resting orders. Combining the two source statistics gives an approximate bank share of passive volume of (0.62*0.60)/[(0.62*0.60)+(0.38*0.37)] = 0.726. The stated 0.55-0.85 interval is already the full uncertainty band for the fact that the venue-share and make:take statistics need not cover precisely the same sample; no second tolerance is applied outside it. It rejects both the earlier regime in which fast non-bank firms supplied roughly three quarters of passive executions and a mechanically all-bank book."
+      "confidence": "high",
+      "match_type": "direct_statistic",
+      "source_excerpt": "EUR/CHF liquidity provider shares of trade volume in the pre-event period: human 38.8 per cent, bank AI 54.1, PTC AI 7.1.",
+      "ingestion_note": "EBS Market is interdealer, so its human traders are bank dealers and the bank share of provided liquidity is 38.8 plus 54.1, or 92.9 per cent, against 7.1 for the professional trading firms. This replaces the derived figure of 0.726 the primary pair carries, which was assembled from two venue statistics; here the share is measured directly on the pair. SCOPE CHANGED ON THIS BRANCH. Table 1 reports two days, the period before the event and the event day, and both rows are now read off the episode run, one from each side of the repricing, in place of reading this one off a separate shockless scenario. The two figures are then produced the same way on the same seed, as the study produces them on the same venue. MAPPING EXTENDED ON THIS BRANCH. n_fast_lp and fast_lp_base_qty both reach one, their floor while the participant exists, at a bank share of about 0.83, so neither can carry the pair the rest of the way to 0.929. fast_lp_base_withdraw_prob is added to the mapping as the continuous form of the same quantity: it is how often the one remaining non-bank provider is away, and it stands in for a sector this pair barely has."
     },
     {
       "observable": "executed_volume_per_second",
@@ -410,11 +410,12 @@
     {
       "observable": "quoted_spread_mean_bps",
       "evaluation_scenario": "baseline_primary",
-      "source": "CME Group, FX Traders: Lovers of the Light (2025), EBS Market annual figures",
+      "source": "Breedon, Chen, Ranaldo and Vause, Bank of England Staff Working Paper 711 (2018), Table 3; Mancini, Ranaldo and Wrampelmeyer (2013), Table 2; and Huang, Ranaldo, Schrimpf and Somogyi, Constrained Liquidity Provision in Currency Markets, Table G.2 of the working paper (BIS Working Papers No 1073)",
       "source_urls": [
-        "https://www.cmegroup.com/articles/2025/fx-traders-lovers-of-the-light.html"
+        "https://www.bankofengland.co.uk/-/media/boe/files/working-paper/2018/judgement-day-algorithmic-trading-around-the-swiss-franc-cap-removal.pdf",
+        "https://www.bis.org/publ/work1073.pdf"
       ],
-      "market_scope": "EUR/USD on EBS Market, annual average across the trading day",
+      "market_scope": "EUR/CHF on EBS Market: the pre-event window of 5-14 January 2015 for the lower bound, the 2007-2008 sample for the upper, and calendar 2016 for the third reading",
       "statistic": "mean quoted spread, in bps of the reference price",
       "parameter_mapping": [
         "fast_lp_base_spread_bps",
@@ -422,21 +423,24 @@
         "price_tick"
       ],
       "accepted_error_band": {
-        "absolute": 0.3
+        "absolute": 0.0
       },
       "objective_weight": 1.0,
       "gating": true,
       "block": "spread",
       "units": "bps",
-      "target_value": 0.81,
       "confidence": "medium",
-      "match_type": "direct_statistic_with_scope_limitation",
-      "source_excerpt": "Despite a 64% surge in EUR/USD volatility, average top-of-book spreads on EBS Market rose by a modest 0.15 pip to 0.89 pip from 0.74 pip in 2024.",
-      "ingestion_note": "REVISED 2026-08-15. The previous anchor of 0.63 pips was a measurement taken around the introduction of quarter-pip increments in March 2024, which is the most favourable slice of that year and not an average of it; the annual figures are 0.74 pips for 2024 and 0.89 for 2025. The 2025 figure is used, converted at a rate near 1.10, giving 0.81 bps. The absolute tolerance of 0.30 bps is wider than measurement error by choice because the venue statistic averages a whole trading day while the model has no intraday session cycle. The mapping has changed with the model: the realised spread is no longer a function of the price grid, so it is now set by the non-bank's base spread and by how tightly the dealer refreshes a quote the price has drifted onto, not by mm_alpha0_base."
+      "match_type": "bracketed_by_two_primary_statistics",
+      "source_excerpt": "For EUR/CHF, median effective spreads were 0.21 basis points for every trader type in the pre-event period. The same pair shows a median bid-ask spread of 1.80 basis points over 2007 and 2008. Its mean relative bid-ask spread on EBS over calendar 2016 is 1.71 basis points, against 1.01 for EUR/USD in the same table.",
+      "ingestion_note": "The two readings available for this pair on this venue each fail on a different side, so the target is the interval they bracket and not a point inside it. The lower bound is Breedon: a pre-event median effective spread of 0.21 bps scaled by 4.86, the effective-to-quoted ratio the same pair shows in Mancini Table 2 where a median effective cost of 0.37 stands against a median bid-ask spread of 1.80. That reading is in the right era, under the decimal pip increment this calibration assumes, but it needs a conversion taken from another sample. The upper bound is Mancini directly: a quoted spread measured without any conversion, but over 2007 and 2008, when EBS quoted in whole pips and a spread could not compress below one, so it overstates what the pair shows under decimal pricing. An earlier version of this target gated on the converted point alone, which made the conversion load bearing; the interval keeps the gate while removing that dependence, since it holds whichever of the two readings is nearer the truth. The tolerance is set to zero because the interval already carries the uncertainty the tolerance used to. THIRD READING ADDED ON THIS BRANCH. Huang, Ranaldo, Schrimpf and Somogyi report a mean relative bid-ask spread for EUR/CHF on EBS of 1.71 bps over calendar 2016, measured directly and needing no conversion, against 1.01 for EUR/USD in the same table. It is not made a bound, because it lands inside the interval already in force and because its year is the wrong one: 2016 is a year of free float. What it settles is the objection that the interval is too wide to constrain anything. Both direct readings of this pair, one from the whole-pip era and one from a decimal year, sit at 1.7 to 1.8, and only the converted reading sits at 1.02. The interval is therefore not an admission of ignorance about the level; it is the distance between a pegged regime and a floating one, and the model is calibrated to the pegged one, which is where the pre-event window of the episode lies. That the model lands at the lower bound is the expected place for it and not a residual of fitting.",
+      "target_range": {
+        "low": 1.02,
+        "high": 1.8
+      }
     },
     {
       "observable": "price_discovery_half_life_ticks",
-      "evaluation_scenario": "dash_for_cash_2020",
+      "evaluation_scenario": "snb_floor_removal_2015",
       "source": "Chaboud, Chiquoine, Hjalmarsson and Vega, Rise of the Machines: Algorithmic Trading in the Foreign Exchange Market, Journal of Finance 69(5), 2014; Mancini, Ranaldo and Wrampelmeyer, Journal of Finance 68(5), 2013",
       "source_urls": [
         "https://doi.org/10.1111/jofi.12186",
@@ -453,14 +457,73 @@
         "absolute": 30.0
       },
       "objective_weight": 1.0,
-      "gating": true,
+      "gating": false,
       "block": "price_discovery",
       "units": "periods",
       "target_value": 30.0,
       "confidence": "low",
       "match_type": "structural_requirement_with_qualitative_source",
       "source_excerpt": "Algorithmic traders ... contribute to price discovery in the major currency pairs on EBS.",
-      "ingestion_note": "ADDED 2026-08-15. This is a structural requirement, not a fitted statistic, and it is marked low confidence for that reason: no source publishes a half-life for the convergence of a quoted mid onto a latent value, and the literature cited supports the order of magnitude and not the number. One model period is one second, and price discovery in the largest currency pair on its primary venue is a phenomenon of seconds. A band of thirty periods either side of thirty therefore admits anything that converges inside a minute and refuses anything that does not. It exists because the target set had no gate that could see a book disconnected from the fundamental. Measured before it was added, the model sat two hundred and eighty basis points away from the latent value a hundred periods after a three per cent repricing, closing thirteen per cent of the gap in three hundred periods, and passed every other acceptance target while doing so. The cause was that no participant in the book quoted off the fundamental: the book fundamentalists were set to zero and the price was carried by an anonymous scaffold with no owner. This target is what would have caught that, and it is what now disciplines the number of them. Evaluated on the identified March 2020 episode from 21.08.2026. The synthetic dealer crisis preset it replaced evacuated the whole dealer sector on every seed, which is a scripted outcome and not an endogenous one."
+      "ingestion_note": "ADDED 2026-08-15. This is a structural requirement, not a fitted statistic, and it is marked low confidence for that reason: no source publishes a half-life for the convergence of a quoted mid onto a latent value, and the literature cited supports the order of magnitude and not the number. One model period is one second, and price discovery in the largest currency pair on its primary venue is a phenomenon of seconds. A band of thirty periods either side of thirty therefore admits anything that converges inside a minute and refuses anything that does not. It exists because the target set had no gate that could see a book disconnected from the fundamental. Measured before it was added, the model sat two hundred and eighty basis points away from the latent value a hundred periods after a three per cent repricing, closing thirteen per cent of the gap in three hundred periods, and passed every other acceptance target while doing so. The cause was that no participant in the book quoted off the fundamental: the book fundamentalists were set to zero and the price was carried by an anonymous scaffold with no owner. This target is what would have caught that, and it is what now disciplines the number of them. Evaluated on the identified March 2020 episode from 21.08.2026. The synthetic dealer crisis preset it replaced evacuated the whole dealer sector on every seed, which is a scripted outcome and not an endogenous one. DEMOTED ON THIS BRANCH. The half-life of 30 seconds is measured on EUR/USD and no EUR/CHF estimate was found, so carrying it as a gate would test this pair against another one. It is retained as a reported diagnostic."
+    },
+    {
+      "observable": "crisis_spread_multiple",
+      "evaluation_scenario": "snb_floor_removal_2015",
+      "source": "Breedon, Chen, Ranaldo and Vause, Judgement Day: algorithmic trading around the Swiss franc cap removal, Bank of England Staff Working Paper 711 (2018), Tables 1 and 3; effective-to-quoted ratio from Mancini, Ranaldo and Wrampelmeyer Table 2",
+      "source_urls": [
+        "https://www.bankofengland.co.uk/-/media/boe/files/working-paper/2018/judgement-day-algorithmic-trading-around-the-swiss-franc-cap-removal.pdf"
+      ],
+      "market_scope": "EUR/CHF on EBS Market, 15 January 2015, the day the floor was removed",
+      "statistic": "mean quoted spread over the episode divided by the mean over the calm scenario",
+      "parameter_mapping": [
+        "liquidity_shock_frac",
+        "fundamental_shock_pct",
+        "mm_withdraw_threshold",
+        "fast_lp_stress_abstention"
+      ],
+      "accepted_error_band": {
+        "absolute": 0.0
+      },
+      "objective_weight": 1.0,
+      "gating": true,
+      "block": "spread",
+      "units": "ratio",
+      "confidence": "high",
+      "match_type": "direct_statistic",
+      "source_excerpt": "Median effective spreads on the event day were 0.92 bps for human traders, 1.22 for bank AIs and 1.91 for PTC AIs, against 0.21 for every type before it.",
+      "ingestion_note": "The episode study reports median effective spreads of 0.21 bps for every trader type before the event and 0.92 to 1.91 on the day, a widening of 4.4 to 9.1 times. The gate asks the model to widen by at least the lower of those and sets no ceiling. Two conversions stand between the study and the model and each fails in the same direction. The study measures effective spreads on trades while the model reports the quoted spread at the touch, and in a dislocation trades print in the moments the book is there, so an effective widening understates a quoted one. The study also separates three trader types the model has one of, and the widest of them is the one the model most resembles once its dealer has withdrawn. A ceiling would therefore assert a precision neither conversion carries. What the floor does carry is the thing the primary pair lacks: without it the size of the shock is free, and a calibration that failed to dislocate at all would pass every remaining target.",
+      "target_range": {
+        "low": 4.4
+      },
+      "tolerance_applies": "lower"
+    },
+    {
+      "observable": "dealer_maker_volume_share",
+      "evaluation_scenario": "snb_floor_removal_2015",
+      "source": "Breedon, Chen, Ranaldo and Vause, Bank of England Staff Working Paper 711 (2018), Table 1",
+      "source_urls": [
+        "https://www.bankofengland.co.uk/-/media/boe/files/working-paper/2018/judgement-day-algorithmic-trading-around-the-swiss-franc-cap-removal.pdf"
+      ],
+      "market_scope": "executed passive volume on EBS Market in EUR/CHF on 15 January 2015 from the repricing onward, bank versus professional trading firm",
+      "statistic": "bank-dealer share of executed passive CLOB volume, from the repricing to the end of the run",
+      "parameter_mapping": [
+        "mm_withdraw_threshold",
+        "mm_reentry_threshold",
+        "mm_withdraw_confirmation_ticks",
+        "liquidity_shock_frac"
+      ],
+      "objective_weight": 1.0,
+      "gating": true,
+      "block": "participant_composition",
+      "units": "share",
+      "target_range": {
+        "low": 0.85,
+        "high": 0.97
+      },
+      "confidence": "high",
+      "match_type": "direct_statistic",
+      "source_excerpt": "EUR/CHF liquidity provider shares of trade volume on the event day: human 68.4 per cent, bank AI 25.1, PTC AI 6.5.",
+      "ingestion_note": "The bank share of provided liquidity is 68.4 plus 25.1, or 93.5 per cent, against 92.9 before the event: the sector that provided liquidity did not change size, it changed composition, as humans took over from the algorithms inside the banks. This is the second half of the crisis gate and it is what bounds the episode from above. The spread multiple bounds it from below and cannot be bounded from above, because the study measures effective spreads on trades printed inside the touch and the model reports the touch itself, so the two multiples differ by a factor that is unknown in a dislocation and that the model, having no execution inside its own quote, cannot produce. This target needs no conversion at all: the study reports a share of passive volume and the model measures a share of passive volume. A dislocation severe enough to evacuate the dealer sector fails it, which is the discipline a ceiling on the spread would have supplied had one been available. SCOPE CHANGED ON THIS BRANCH. It was measured over the whole run and is now measured from the repricing to the end of it, which is the event day the study reports. Whole-run it averaged the event day together with the days before it, and a gate written on the one was answered mostly by the other: the same run reads 0.898 whole, 0.865 on the event day and 0.926 before it. The response window of a hundred and fifty seconds, which every other crisis observable takes, is not used and is reported beside this figure instead. Over that window the model reads 0.975, outside the band: the model's single non-bank provider prices off a reference that leads the lagging book, so through a repricing it crosses and takes instead of resting, and its provided share falls to about one per cent where the market's fell only from 7.1 to 6.5. Sweeping how often that provider is present, across its whole range from never absent to absent two thirds of the time, moves the response-window figure from 0.996 to 0.975 and never into the band, so the miss is structural and not a failure to tune. Table 1 has no row for a hundred and fifty seconds of a day in any case."
     }
   ],
   "withdrawn_targets": [

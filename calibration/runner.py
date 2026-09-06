@@ -692,15 +692,17 @@ def _panel_from_reports(overrides: dict[str, Any], target_payload: dict[str, Any
         }
 
     panel = fitter.evaluate_scenario_suite(median_metrics, run_label='calibration_seed_panel')
-    # One entry per observable. Two targets sharing a name would leave the
-    # dictionary below holding one status for both, whichever the evaluation
-    # emitted last, and the panel would certify one of them and never look at
-    # the other.
+    # Both rows of the source's Table 1 are counted, and they are separate
+    # entries because they are now separate observables. While the two shared
+    # the name dealer_maker_volume_share the dictionary below kept one status
+    # for both of them, whichever the evaluation happened to emit last, so the
+    # panel certified one row of that table and never looked at the other.
     ebs_observables = {
         'quoted_spread_mean_bps',
         'dealer_order_lifetime_median_seconds',
         'nonbank_order_lifetime_median_seconds',
         'dealer_maker_volume_share',
+        'dealer_maker_volume_share_pre_event',
     }
     ebs_seed_pass = []
     for report in reports:

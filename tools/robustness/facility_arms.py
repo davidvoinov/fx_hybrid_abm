@@ -98,15 +98,23 @@ OUTCOME_SIZES = (1.0, 2.0, 5.0, 20.0)
 # the slowest. A level taken from the control is the same bar for every arm.
 RECOVERY_FRACTION = 0.5
 RECOVERY_WINDOW = 5
-# The capital is what the reserve priced pool actually holds once its
-# providers have committed, read as opening capital plus wallets on seed 42,
-# and the obliged quoter is endowed with the same so the arms are matched on
-# resources. The spread is the pool's own round trip at the outcome size over
-# the pre-shock periods, which is the price the quoter is matched to; it is
-# read from the manifest, where its provenance is recorded, since a pair whose
-# quoting increment and volatility differ prices its pool differently.
-ARM_CAPITAL = 951_999.0
-ARM_SPREAD_BPS = float(load_primary_model_defaults().get('arm_spread_bps', 3.469))
+# Both are measured on this pair and not carried over. The capital is what the
+# reserve priced pool actually holds once its providers have committed, read as
+# opening capital plus wallets on seed 42, and the obliged quoter is endowed
+# with the same so the arms are matched on resources. The spread is the pool's
+# own round trip at the outcome size over the pre-shock periods, which is the
+# price the quoter is matched to; it is read from the manifest, where its
+# provenance is recorded. The EUR/USD calibration carried 951,999.0 and 3.469;
+# the pair moves both, since its quoting increment and its volatility differ
+# and the pool's schedule is priced off them.
+#
+# Both were re-read when the quoting increment was corrected. The model had
+# been snapping each price to the declared increment and then rounding it
+# again onto a coarser grid, so the pool whose resources these match was not
+# the pool the manifest described. The capital moved by 755 units, eight
+# hundredths of one per cent, and the round trip by 0.007 basis points.
+ARM_CAPITAL = 898_332.0
+ARM_SPREAD_BPS = float(load_primary_model_defaults().get('arm_spread_bps', 2.3011))
 ARMS = ('none', 'reserve', 'reserve_frozen', 'dealer_of_last_resort',
         'passive_book')
 # Sized to what the dealer sector can give up while still quoting, which is

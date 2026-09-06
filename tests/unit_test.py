@@ -1424,15 +1424,31 @@ def test_primary_model_manifest_defaults():
 
     nonbank_life = active.get('nonbank_order_lifetime_median_seconds', {})
     maker_mix = active.get('dealer_maker_volume_share', {})
+    maker_mix_pre = active.get('dealer_maker_volume_share_pre_event', {})
     check_bool("EBS non-bank order life has its own direct gate",
                nonbank_life.get('gating') is True
                and float(nonbank_life.get('target_value', 0.0)) == 2.95,
                f"{nonbank_life}")
+    # The source reports this share on two days and the model reads it on the
+    # two sides of the repricing, so both rows sit on the episode run and each
+    # names the window it was taken over. Sharing one observable name across
+    # the two of them is what let a whole-run figure answer a gate written on
+    # the event day, so the names are checked as well as the gates.
     check_bool("Participant composition is evaluated on executed maker volume",
                maker_mix.get('gating') is True
+               and maker_mix_pre.get('gating') is True
                and maker_mix.get('statistic', '').startswith(
+                   'bank-dealer share of executed passive CLOB volume')
+               and maker_mix_pre.get('statistic', '').startswith(
                    'bank-dealer share of executed passive CLOB volume'),
-               f"{maker_mix}")
+               f"{maker_mix} | {maker_mix_pre}")
+    check_bool("Both rows of the composition table are read off the episode run",
+               maker_mix.get('evaluation_scenario') == main_module.CRISIS_PRESET
+               and maker_mix_pre.get('evaluation_scenario') == main_module.CRISIS_PRESET
+               and 'from the repricing' in maker_mix.get('statistic', '')
+               and 'up to the repricing' in maker_mix_pre.get('statistic', ''),
+               f"{maker_mix.get('evaluation_scenario')} / "
+               f"{maker_mix_pre.get('evaluation_scenario')}")
 
     for observable in ('amm_volume_share', 'fx_amm_parameter_sanity'):
         target = active.get(observable, {})

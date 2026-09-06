@@ -16,12 +16,20 @@ commitment and its own provenance, and none of them reimplements another:
 
 An episode is named with --preset on the run command. The declared ones are
 baseline, mm_withdrawal, flash_crash, dealer_liquidity_crisis,
-funding_liquidity_shock, dash_for_cash_2020, dealer_capacity_contagion and
-high_vol_stress; the article rests on dash_for_cash_2020. Every model parameter
-is exposed as a flag on run, and a flag given explicitly overrides the episode
-it belongs to:
+funding_liquidity_shock, snb_floor_removal_2015, dash_for_cash_2020,
+dealer_capacity_contagion and high_vol_stress.
 
-    python -m main run --preset dash_for_cash_2020 --seed 42
+This is the EUR/CHF branch and it rests on snb_floor_removal_2015, the removal
+of the Swiss franc floor on 15 January 2015. Three of the presets above are
+identified episodes of the primary pair and are carried here unused, so that
+the two branches keep one set of episode definitions between them; the branch
+that rests on each is named in calibration/final_protocol.json. Only three
+scenarios are calibrated against: baseline_primary, funding_liquidity_shock
+and the episode, and they are listed in calibration/primary_model_targets.json
+under calibration_scenarios. Every model parameter is exposed as a flag on run,
+and a flag given explicitly overrides the episode it belongs to:
+
+    python -m main run --preset snb_floor_removal_2015 --seed 42
     python -m main run --shock-iter 350 --shock-mode realism --fundamental-shock-pct -12
 
 The entry point takes no comparison against the same market without a facility.
@@ -386,6 +394,68 @@ REALISM_PRESETS = {
         bg_target_ratio_recovery=0.060,
         toxic_flow_decay=0.90,
         liquidity_shock_decay=0.91,
+    ),
+    # ── Identified episodes, EUR/USD ────────────────────────────────
+    # Severity on each is set so that impaired dealer capacity lands between
+    # roughly one half and nine tenths over the crisis window. Below one half
+    # the contagion channel of BIS WP 1138 does not engage at all, and at one
+    # the sector is evacuated by the script before any feedback acts, which
+    # leaves the channel nothing to amplify and fails the acceptance check that
+    # forbids a path evacuating every dealer.
+    # The removal of the Swiss franc floor, 15 January 2015. The SNB
+    # discontinued the minimum rate of CHF 1.20 at 09:30 GMT; the ECB daily
+    # reference rate went from 1.2010 on 14 January to 1.0280 on 15 January,
+    # a repricing of -14.40 per cent, which is the only quantity this episode
+    # imposes. What the dislocation then looks like is the model's to produce,
+    # and it is checked against the crisis targets the episode study reports.
+    "snb_floor_removal_2015": dict(
+        shock_iter=350,
+        shock_mode="realism",
+        clob_amm_interaction="competition",
+        fundamental_shock_pct=-14.40,
+        order_flow_shock_qty=190.0,
+        order_flow_shock_side="sell",
+        # The book emptied completely, but briefly: for a few seconds in the
+        # minute of 9.31 there were no orders to buy euros for francs at any
+        # price. The panel averages a whole run against a study that averages
+        # a whole trading day, so the fraction here is what the episode leaves
+        # on average and not what it did at its worst. It is set by the crisis
+        # gate, which asks the run to widen by the 4.4 to 9.1 times the study
+        # measured; a value of 0.85 overshoots that band and would assert the
+        # book stayed all but empty throughout, which the evidence does not say.
+        liquidity_shock_frac=0.65,
+        funding_vol_shock_intensity=1.0,
+        force_mm_pause=False,
+        arb_trade_fraction_cap=0.05,
+        reprice_prob_recovery=0.015,
+        anchor_strength_recovery=0.008,
+        bg_target_ratio_recovery=0.025,
+        toxic_flow_decay=0.996,
+        liquidity_shock_decay=0.997,
+        stress_overlay_decay=0.997,
+        # The banks did not stop providing. Their share of provided volume
+        # was 92.9 per cent before the event and 93.5 on the day, because
+        # humans took over from the algorithms inside them, so the sector
+        # held while its composition turned over. The model has one dealer
+        # population where the market had two, and it reproduces the
+        # sustained aggregate by having that population withdraw late.
+        #
+        # The value was 3.2 while it was calibrated against the share of
+        # provided volume alone, and that share could not see what was
+        # wrong: it weights executed passive volume, so a period in which
+        # nothing executes contributes nothing to it. At 3.2 the whole
+        # dealer sector stood withdrawn for a median of 86 periods of the
+        # 150, and on 636 of 640 such periods across eight seeds no passive
+        # volume executed at all. The book was not thin then, it was dark,
+        # and the record describes an absence of bids lasting seconds and
+        # not half the window. At 4.0 the sector never empties, while
+        # withdrawal remains the dominant mechanism: 68 per cent of dealers
+        # are withdrawn at the peak. The liquidity shock does not drive
+        # this at all, moving the dark count from 80 to 78 across its whole
+        # range, so the threshold is what governs it.
+        mm_withdraw_threshold=4.0,
+        mm_reentry_threshold=0.4,
+        mm_withdraw_confirmation_ticks=2,
     ),
     "dash_for_cash_2020": dict(
         shock_iter=350,

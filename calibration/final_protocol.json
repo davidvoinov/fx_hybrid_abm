@@ -1,7 +1,7 @@
 {
-  "protocol_version": "book-lp-final-v5.3",
-  "frozen_at": "2026-08-21",
-  "scope": "Computational closure of the EBS book calibration and endogenous AMM-LP block. Manuscript prose is outside this protocol.",
+  "protocol_version": "eurchf-branch-v3",
+  "frozen_at": "2026-09-06",
+  "scope": "Computational closure of the EUR/CHF branch: the EBS book calibration for the pair and the episode of 15 January 2015. Manuscript prose is outside this protocol.",
   "revision_history": [
     {
       "version": "book-lp-final-v1",
@@ -105,23 +105,62 @@
       "holdout_opened_at_freeze": false
     },
     {
-      "version": "book-lp-final-v5.3",
-      "frozen_at": "2026-09-06",
-      "result": "measurement_defects_corrected",
-      "reason": "Defects in the measurement and in the entry point, none of them a calibration choice. The quoting increment the manifest declares reached no quote, because each price was snapped to it and then rounded again onto a coarser grid. The calm window ran a hundred periods while the crisis window ran a hundred and fifty, so every comparison of the two states divided a gain earned over one span into a loss taken over another. Several literals that belong to a pair were written into the measurement code, where a second pair cannot reach them.",
+      "version": "eurchf-branch-v1",
+      "frozen_at": "2026-09-04",
+      "result": "branch_calibration_for_a_second_pair",
+      "reason": "This is the EUR/CHF branch of the model. Three quantities differ from the primary pair and no equation does: the quoting increment, taken from the EBS decimal pip at the floor rate of 1.2010; the annual volatility of the latent price, taken from the median annualised realised volatility the pair shows in Table 2 of Mancini, Ranaldo and Wrampelmeyer; and the overnight cost of committed capital, which both legs of this pair carried at a negative policy rate in the episode and which the model therefore floors at zero. The episode is the removal of the Swiss franc floor on 15 January 2015, whose repricing is pinned by the ECB daily reference rate and whose dislocation is checked against the effective spreads of Breedon, Chen, Ranaldo and Vause. Every frozen digest is restated because the target matrix, the runtime and the model all moved with the pair.",
       "changes": [
-        "round_price, floor_price and ceil_price no longer re-round to three decimals after snapping to the tick, so the declared increment is the grid. Every stored trajectory moves.",
-        "The calm window becomes a hundred and fifty periods, the same length as the crisis window, running from the end of the provider warm up to fifty short of the shock.",
-        "The bound on the non-bank lifetime atom share is judged by what its tail does to the median it protects, and no longer by a per-seed bound. A majority of the panel must comply so that there is a remainder to compare the median against.",
-        "The identified episode and the price the obliged quoter is matched to are declared in the manifest, where they were literals in the entry point and in each measurement module.",
-        "A negative price reversion, volatility scale or funding rate is refused instead of being clamped to zero in silence.",
-        "The outside-option sensitivity arm steps additively where its baseline is zero, since a multiplicative arm collapses onto the baseline there.",
-        "The regression fingerprint carried per-metric allowances up to two basis points on quantities whose own scale is a fraction of one, and passed a doubling of the large-trade cost without a word. One arithmetic allowance replaces them and the baseline records the tree it fingerprints.",
-        "The manuscript check reads the text a reader meets, so a withdrawal in a LaTeX comment no longer satisfies it, and it separates a report produced by another pair branch from one produced by a superseded version of this calibration.",
-        "The claims tool takes the episode name from the panel it reads, where it carried a literal that no panel declares, so one row of the calibration table went unchecked while the tool reported a pass.",
-        "Thousands separators are one shared list of spellings, so a four figure number in a table is checkable.",
-        "The figure registry names every figure the manuscript prints, including the one comparing two pairs, which no run of the figure command could reach.",
-        "welfare_accounting.annual_frame acquires a caller, and identify and participation are reachable from the entry point."
+        "price_tick 0.000909 to 0.0008326, price_vol_scale 0.0012859 to 0.001153, funding_rate_scale and amm_lp_outside_option to zero.",
+        "n_fast_lp 2 to 1 and fast_lp_base_withdraw_prob 0 to 0.65, so that the bank share of passive volume can reach the 92.9 per cent this pair shows against the 72.6 per cent derived for the primary one.",
+        "Episode snb_floor_removal_2015 added and dash_for_cash_2020 retired from the scenario suite.",
+        "Crisis gate crisis_spread_multiple added, the first gate on this model that is not a calm state statistic; the spread and maker-share targets repointed to measurements of this pair.",
+        "price_discovery_half_life_ticks demoted from gating: its estimate is EUR/USD and no EUR/CHF counterpart was found.",
+        "A negative funding rate is refused instead of being clamped to zero in silence.",
+        "The sensitivity grid steps the outside option additively where its baseline is zero, since a multiplicative arm collapses onto the baseline there."
+      ]
+    },
+    {
+      "version": "eurchf-branch-v2",
+      "frozen_at": "2026-09-05",
+      "result": "crisis_gate_completed_and_episode_recalibrated",
+      "reason": "An external audit found the crisis gate one sided, so a model could dislocate without bound and still pass. A ceiling on the spread multiple is not available, because the study measures effective spreads on trades printed inside the touch while the model reports the touch, and the factor between them in a dislocation is unknown. The episode is instead bounded from above by a second crisis target that needs no conversion at all: the bank share of provided volume, which the same study reports at 93.5 per cent on the event day against 92.9 before it. The model failed that target at a withdrawal threshold of 0.7 and meets it at 3.2, which is the sense in which the episode was a repricing the banks quoted through and not an evacuation of the dealer sector.",
+      "changes": [
+        "Crisis target dealer_maker_volume_share added on the episode scenario, two sided, from Table 1 of the episode study; it bounds the dislocation from above.",
+        "Episode mm_withdraw_threshold 0.7 to 3.2, calibrated against that target on a forty seed panel; every stored result moves with it.",
+        "Calm quoted spread target changed from the converted point of 1.02 to the interval [1.02, 1.80] the two available readings of this pair bracket, so the conversion is no longer load bearing.",
+        "The chronology of the two policy legs corrected: the Swiss leg stood at zero on the day, since the announced -0.25 per cent took effect on 22 January 2015.",
+        "fast_lp_base_withdraw_prob note corrected to the value the calibration carries.",
+        "welfare_accounting takes an outside-option override so the zero cost of capital can be bounded by measurement.",
+        "A width regression for the obliged quoter added under a one per cent displacement.",
+        "Regression baseline shifts attributed to parameters by ablation and recorded in the file."
+      ]
+    },
+    {
+      "version": "eurchf-branch-v3",
+      "frozen_at": "2026-09-06",
+      "result": "measurement_windows_corrected_and_the_price_grid_honoured",
+      "reason": "Two of the branch's gates were answered by something other than what they asked about, and the price grid the branch declares was not the one the model quoted on. The crisis share of provided volume was measured over the whole run, so a gate written on the event day was answered mostly by the days before it. The dealer withdrawal threshold had been set against that diluted figure, and the share of provided volume cannot see a period in which nothing executes: at 3.2 the dealer sector stood fully withdrawn for a median of 86 periods of 150 and no passive volume executed at all on 636 of 640 such periods across eight seeds. The book was not thin then, it was dark. Separately, round_price snapped each price to the declared increment and then rounded the result to three decimals, which is a coarser grid: not one quoted price in any run was a multiple of the 0.0008326 the manifest names, and the increment the branch derives from the EBS decimal pip had no effect on any quote. Every frozen digest moves, and every stored result moves with them.",
+      "changes": [
+        "Episode mm_withdraw_threshold 3.2 to 4.0. At 4.0 the sector never empties and withdrawal remains the dominant mechanism, with 68 per cent of dealers withdrawn at the peak. The liquidity shock does not govern this, moving the count of dark periods from 80 to 78 across its whole range; the threshold does.",
+        "Crisis dealer_maker_volume_share re-scoped from the whole run to the repricing onward, which is the event day the source reports. The same run reads 0.898 whole, 0.865 on the event day and 0.926 before it.",
+        "The calm reading of the same statistic moved off the shockless scenario and onto the episode's own pre-shock segment, as dealer_maker_volume_share_pre_event. Both rows of the source's Table 1 are now taken from one run, one from each side of the repricing, as the source takes them from one venue.",
+        "The response window is reported for this statistic and is not gated. Over it the model reads 0.975, outside the band: its single non-bank provider prices off a reference that leads the lagging book, so through a repricing it crosses and takes instead of resting. Sweeping how often that provider is present, across its whole range, moves the figure from 0.996 to 0.975 and never into the band, so the miss is structural.",
+        "The per-seed EBS panel counted four checks where it should have counted five: the calm and crisis readings of the maker share shared one observable name, so the status dictionary kept whichever was written last and one row of the source table was never read.",
+        "round_price, floor_price and ceil_price no longer re-round to three decimals after snapping to the tick. The declared increment is now the grid. The calm mean quoted spread falls from 1.069 to 1.021 basis points on the 300 seed development block as a result.",
+        "The bound on the non-bank lifetime atom share becomes a bound on the share of the seed panel that complies, at 95 per cent, in place of a bound on every seed. The bound exists so that a median order lifetime is not assembled out of orders opened and closed inside one period, and that purpose survives a tail.",
+        "dealer_full_withdrawal_ticks added: how long the sector stands fully withdrawn, and not merely whether it ever does. A peak of one says the book emptied; only the duration says whether it emptied for a moment or stayed empty.",
+        "A third reading recorded against the calm spread target: Huang, Ranaldo, Schrimpf and Somogyi give a mean relative bid-ask spread for EUR/CHF on EBS of 1.71 basis points over calendar 2016, measured directly. It is not made a bound, because it falls inside the interval in force and its year is one of free float. It settles the objection that the interval is too wide to constrain anything: both direct readings of this pair sit at 1.7 to 1.8 and only the converted one sits at 1.02, so the interval is the distance between a pegged regime and a floating one.",
+        "tools/robustness/spread_identification.py added, which moves each candidate parameter on its own and reads the calm spread, so that what identifies that spread is a measurement in the record and not a claim.",
+        "The article claims tool read a scenario name this branch no longer carries, so one row of the calibration table was dropped in silence while the tool reported a pass. It reads the identified episode now.",
+        "H4 moved onto the annual frame. On the crisis window an outside option of a hundred basis points a year is five hundredths of a quote unit against an operating loss of ten thousand, so the hypothesis could not be tested there at all. tools/robustness/participation_grid.py measures the crisis-state share of windows at which the provider stops covering itself, over a grid of outside options and sponsor transfers, and reads the same share against a milder and a more severe episode.",
+        "The break-even share that grid computes carries the opportunity cost of the capital, which the one already in the record does not, and it works in rates per second. The stored share divides a calm window of a hundred seconds by the sum of itself and a crisis window of a hundred and fifty, which compares unequal windows, and it is taken before the opportunity cost, which is the whole of the channel H4 names, so it could not have moved with the outside option whatever the model did.",
+        "welfare_accounting.annual_frame had no caller anywhere in the tree. It has one now.",
+        "The fallback episode named when the manifest cannot be read was dash_for_cash_2020, an episode of the primary pair. On this branch that is the outcome the function refuses in its own docstring: the wrong episode measured against the wrong crisis targets, silently. It is a sentinel now, which names no episode, so the module imports and nothing runs on it.",
+        "identify and participation added to the entry point and to the README, so that every measurement the manuscript rests on is reachable the same way as the rest.",
+        "The two constants that match the arms on resources were re-read on the corrected grid, since the pool they match was priced on the increment the model actually used. The capital the reserve priced pool holds moves from 899,087 to 898,332, and its own round trip at the outcome size from 2.294 to 2.3011 basis points. The 2.294 was set from three seeds and the twenty seed check recorded beside it belonged to the superseded grid; the value now carried is the mean over twenty seeds of two hundred pre-shock periods each, with a standard error of 0.0024.",
+        "The calm and crisis windows are now the same length. The crisis window was lengthened to a hundred and fifty periods and the calm window was left at a hundred, so every comparison of the two states divided a gain earned over one span into a loss taken over another and the count of calm windows one crisis window consumes was overstated by about half. The calm window is a hundred and fifty periods now, running from the end of the provider warm up, which is three over the return signal smoothing constant and therefore a hundred and fifty periods at the calibrated 0.02, to fifty short of the shock. Placed sixty short it would have opened ten periods inside the warm up, where a provider does not act on its own return at all.",
+        "The bound on the non-bank lifetime atom share is no longer a share of the panel. A share has to be chosen and nothing derives it; what the purpose derives is a test of the statistic the bound protects. Every seed outside the bound is dropped and the panel median of the order lifetime must not move, with a majority of the panel required inside so that there is a remainder to compare against. On the development panel 274 of 300 seeds sit inside the bound and the median is 2.0000 with the other 26 in or out.",
+        "The stale-results guard in the manuscript check was satisfied by a marker in a LaTeX comment, which reaches no page, while the table below it presented the figures as live. The check reads the text a reader meets, and it separates two situations that were one: a report produced by the branch of the other pair, which is what the paper reports and cannot be recomputed here, and a report produced by a superseded version of this calibration, which is withdrawn. The first is labelled in the text. The stored reports of the primary pair also declare the model that produced them and no measurement signature, so the comparison that was meant to detect staleness compared against nothing."
       ]
     }
   ],
@@ -129,14 +168,14 @@
     "development": {
       "seed_start": 42,
       "seed_count": 300,
-      "status": "pending_rerun_under_v5",
-      "output": "output/final/book_development_v5_300.json"
+      "status": "pending_run_under_eurchf_branch_v3",
+      "output": "output/final/book_development_eurchf_v3_300.json"
     },
     "holdout": {
       "seed_start": 20042,
       "seed_count": 300,
       "status": "untouched_single_use_holdout",
-      "output": "output/final/book_holdout_v5_300.json"
+      "output": "output/final/book_holdout_eurchf_v3_300.json"
     }
   },
   "thresholds": {
@@ -154,7 +193,7 @@
     "nonbank_lifetime_atom_share_panel_majority": 0.5
   },
   "lp_design": {
-    "scenario": "dash_for_cash_2020",
+    "scenario": "snb_floor_removal_2015",
     "final_inference_panel": {
       "seed_start": 20042,
       "seed_count": 300,
@@ -305,9 +344,9 @@
     "lp_acceptance_code_sha256": "27fca6e3e8f8c6f298d00db407b762148f906d6067d75c11f780858934435166"
   },
   "frozen_hashes": {
-    "target_matrix_sha256": "84e0b86ef47da6a9ae3a7d42b13d3bd0764925955a5a61ec75dc98ecb13f7788",
-    "primary_runtime_sha256": "3303460c2e202779b00147b3d66cf66bb6878318b443c6842fb778d9619cd573",
-    "simulation_model_signature": "5f818bf82526c1e1",
-    "book_acceptance_signature": "33fdee68099f0193"
+    "target_matrix_sha256": "92333f73d714bb9ec99b23c96473de1cc1de4c5bc06e0893932f85574fcb0685",
+    "primary_runtime_sha256": "fc912b5793536d47bebf7e2cd1ade48a16f937ed4b08d57c0bc9ba42b1122893",
+    "simulation_model_signature": "9bc8e9bde0d8a0fe",
+    "book_acceptance_signature": "325a266eada2ffee"
   }
 }
