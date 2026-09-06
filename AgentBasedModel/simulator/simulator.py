@@ -1075,7 +1075,8 @@ class Simulator:
                    mm_core_threshold: float = calibrated_default('mm_core_threshold', 0.0),
                    facility_arm: str = 'reserve',
                    arm_capital: float = 0.0,
-                   arm_spread_bps: float = 12.0,
+                   arm_spread_bps: float = calibrated_default(
+                       'arm_spread_bps', 12.0),
                    mm_min_withdraw_ticks: int = calibrated_default('mm_min_withdraw_ticks', 4),
                    mm_reentry_ticks: int = calibrated_default('mm_reentry_ticks', 3),
                    mm_withdraw_confirmation_ticks: int = calibrated_default(

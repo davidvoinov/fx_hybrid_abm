@@ -43,11 +43,11 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 from main import (build_parser, _apply_preset_defaults, _resolve_main_routing,
-                  _auto_stress_around_shock, _seed_all, build_sim)
+                  _auto_stress_around_shock, _seed_all, build_sim, CRISIS_PRESET)
 from tools.robustness.lp_pnl_corrected import components
 from tools.robustness.signatures import measurement_signature, model_signature
 
-PRESET = 'dash_for_cash_2020'
+PRESET = CRISIS_PRESET
 N_ITER = 1000
 # The same window the resilience comparison uses. At a hundred periods this
 # was also shorter than the fastest exit a provider can complete, since the
@@ -58,8 +58,10 @@ CRISIS = (0, 150)
 # wallets its providers hold outside the pool, and to the pool's round trip
 # cost weighted by the realised distribution of customer trade sizes. Both are
 # read off the reserve arm before any comparison, in facility_arms.py.
-ARM_CAPITAL = 951_999.0
-ARM_SPREAD_BPS = 3.469
+# Read from the arms runner and not copied. The two had to agree on what a
+# matched arm is endowed with and on the price it is matched to, and nothing
+# made them; a branch that recalibrates the pair moves both.
+from tools.robustness.facility_arms import ARM_CAPITAL, ARM_SPREAD_BPS  # noqa: E402
 POOL_ARMS = ('reserve', 'reserve_frozen', 'reallocation')
 ABSOLUTE_SIZE_BOUNDS = (5.0, 20.0)
 # The calibration maps one tick to one second and its funding anchor to 252
@@ -677,7 +679,8 @@ def arm_window(sim, shock: int,
 
 def run(seed: int, arm, lp_model: str = 'endogenous',
         subsidy_rate: float = 0.0, loss_rebate_fraction: float = 0.0,
-        response_scale: Optional[float] = None):
+        response_scale: Optional[float] = None,
+        outside_option: Optional[float] = None):
     """One arm of the comparison on one seed.
 
     ``arm`` names the facility, so that the welfare account carries the same
@@ -697,6 +700,13 @@ def run(seed: int, arm, lp_model: str = 'endogenous',
             '--amm-lp-loss-rebate', repr(float(loss_rebate_fraction))]
     if arm in ('dealer_of_last_resort', 'passive_book'):
         argv.extend(['--arm-capital', repr(ARM_CAPITAL)])
+    # The return a provider can earn away from the pool. It is zero on this
+    # calibration because both policy legs were at or below zero, and that
+    # removes the opportunity-cost channel from the participation margin
+    # instead of merely shrinking it. The override exists so the size of what
+    # was removed can be measured and not merely asserted.
+    if outside_option is not None:
+        argv.extend(['--amm-lp-outside-option', repr(float(outside_option))])
     if response_scale is not None:
         argv.extend(['--amm-lp-response-scale', repr(float(response_scale))])
     parser = build_parser()
@@ -769,15 +779,16 @@ def measure(seed: int, annual_capital_rate: float = 0.029,
             lp_model: str = 'endogenous', subsidy_rate: float = 0.0,
             loss_rebate_fraction: float = 0.0,
             response_scale: Optional[float] = None,
-            arm: str = 'reserve') -> dict:
+            arm: str = 'reserve',
+            outside_option: Optional[float] = None) -> dict:
     """One arm against the dealer only control, on one seed.
 
     The control is the same market in both, so the difference is the arm.
     """
     without, shock0 = run(seed, 'none', lp_model, subsidy_rate,
-                          loss_rebate_fraction, response_scale)
+                          loss_rebate_fraction, response_scale, outside_option)
     with_arm, shock1 = run(seed, arm, lp_model, subsidy_rate,
-                           loss_rebate_fraction, response_scale)
+                           loss_rebate_fraction, response_scale, outside_option)
     off = arm_window(without, shock0)
     on = arm_window(with_arm, shock1)
     result = account_pair(on, off, annual_capital_rate=annual_capital_rate,
@@ -927,6 +938,9 @@ def main() -> int:
                         help='quote transfer per tick as a fraction of pool NAV')
     parser.add_argument('--loss-rebate', type=float, default=0.0,
                         help='fraction of a negative LP operating payoff reimbursed')
+    parser.add_argument('--outside-option', type=float, default=None,
+                        help='provider outside option per tick; the manifest '
+                             'value is used when this is not given')
     parser.add_argument('--response-scale', type=float, default=None,
                         help='override the calibrated LP return-response scale')
     parser.add_argument('--output', default='output/resilience/welfare_accounting.json')
@@ -947,7 +961,8 @@ def main() -> int:
         print('welfare accounting self-check:', 'pass' if ok else 'fail')
         return 0 if ok else 1
     jobs = [(seed, args.capital_rate, args.lp_model, args.subsidy_rate,
-             args.loss_rebate, args.response_scale, args.arm)
+             args.loss_rebate, args.response_scale, args.arm,
+             args.outside_option)
             for seed in range(args.seed_start, args.seed_start + args.seeds)]
     if args.workers > 1:
         with ProcessPool(args.workers) as pool:

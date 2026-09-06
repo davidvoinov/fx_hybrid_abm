@@ -29,10 +29,10 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.insert(0, ROOT)
 
 from main import (build_parser, _apply_preset_defaults, _resolve_main_routing,
-                  _auto_stress_around_shock, _seed_all, build_sim)
+                  _auto_stress_around_shock, _seed_all, build_sim, CRISIS_PRESET)
 from tools.robustness.signatures import measurement_signature, model_signature
 
-PRESET = 'dash_for_cash_2020'
+PRESET = CRISIS_PRESET
 N_ITER = 1000
 WINDOW = 150
 HORIZON = 30            # periods over which the markout is read

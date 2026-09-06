@@ -242,7 +242,7 @@ def fig_markout(data='output/resilience/flow_selection.json') -> str:
     """
     payload = _load(data)
     states = [k for k in payload if k not in ('crisis_less_calm', 'provenance')]
-    titles = {'calm': 'Calm market', 'dash_for_cash_2020': 'Crisis window'}
+    titles = {'calm': 'Calm market'}
     venues = (('facility', 'the reserve priced pool', POOL),
               ('book', 'the order book', CONTROL))
     fig, axes = plt.subplots(1, len(states), figsize=(6.4, 2.9))
@@ -257,7 +257,7 @@ def fig_markout(data='output/resilience/flow_selection.json') -> str:
         ax.axhline(0.0, color='black', linewidth=0.8)
         ax.set_xticks(range(len(venues)))
         ax.set_xticklabels([label for _, label, _ in venues], fontsize=8)
-        ax.set_title(titles.get(state, state), loc='left', fontsize=9)
+        ax.set_title(titles.get(state, 'Crisis window'), loc='left', fontsize=9)
         ax.set_ylabel('markout per unit, basis points', fontsize=8)
         _frame(ax)
     fig.tight_layout()
@@ -436,11 +436,6 @@ def fig_resilience(data='output/facility_arms.json') -> str:
     return _save(fig, 'resilience.pdf')
 
 
-ALL = (fig_availability, fig_decomposition, fig_resilience, fig_cost_measures,
-       fig_dislocation_path, fig_providers, fig_markout, fig_size_curve,
-       fig_fee_frontier, fig_cascade, fig_efficiency)
-
-
 def draw_all() -> list:
     """Draw every figure, reporting the ones whose data is not there yet."""
     use_paper_style()
@@ -456,3 +451,63 @@ def draw_all() -> list:
 if __name__ == '__main__':
     for path in draw_all():
         print(os.path.relpath(path, ROOT))
+
+
+# ── 12. the second pair ──────────────────────────────────────────────────
+def fig_pair_comparison(main='output/resilience/welfare_{}.json',
+                        branch='output/eurchf/welfare_{}.json') -> str:
+    """What the arms return and what they consume, on two pairs.
+
+    The ordering the main pair reports is not a property of the designs. It
+    turns on the size of the dislocation, and the second pair carries one an
+    order of magnitude larger, so the panel puts the two beside each other
+    and asserts neither as the result.
+    """
+    arms = ('reserve', 'dealer_of_last_resort', 'passive_book')
+    labels = ['reserve priced\npool', 'obliged\nquoter', 'passive\nladder']
+    series = []
+    for pattern in (main, branch):
+        benefit, ratio = [], []
+        for arm in arms:
+            block = _load(pattern.format(arm))['summary']['medians']
+            b = float(block['matched_notional_user_benefit_bps'])
+            loss = -float(block['lp_operating_result'])
+            benefit.append(b)
+            ratio.append(loss / b if b else float('nan'))
+        series.append((benefit, ratio))
+
+    fig, axes = plt.subplots(1, 2, figsize=(6.6, 2.7))
+    x = np.arange(len(arms))
+    width = 0.36
+    names = ('EUR/USD, 2020', 'EUR/CHF, 2015')
+    colours = (CONTROL, POOL)
+    for ax, index, title, ylabel in (
+            (axes[0], 0, 'What customers gained', 'benefit, basis points'),
+            (axes[1], 1, 'What it cost to give it', 'provider loss per basis point')):
+        for n, ((benefit, ratio), name, colour) in enumerate(
+                zip(series, names, colours)):
+            values = (benefit, ratio)[index]
+            ax.bar(x + (n - 0.5) * width, values, width=width,
+                   color=colour, alpha=0.9, label=name)
+        ax.set_xticks(x)
+        ax.set_xticklabels(labels, fontsize=7.5)
+        ax.set_title(title, loc='left', fontsize=9)
+        ax.set_ylabel(ylabel, fontsize=8)
+        _frame(ax)
+    # The right panel spans thirty to one, which no linear axis shows.
+    axes[1].set_yscale('log')
+    # The tallest bar of the left panel is the first group, so the legend
+    # goes to the panel that has room for it.
+    axes[1].legend(frameon=False, fontsize=7.5, loc='upper left')
+    fig.tight_layout()
+    return _save(fig, 'pair_comparison.pdf')
+
+
+# Every figure the manuscript prints. The list used to sit above the last
+# function in this file and therefore could not name it, so the panel that
+# compares the two pairs was drawn once by hand and never redrawn: it was the
+# one figure in the paper that no run of the figure command could refresh, and
+# it would have gone stale without saying so.
+ALL = (fig_availability, fig_decomposition, fig_resilience, fig_cost_measures,
+       fig_dislocation_path, fig_providers, fig_markout, fig_size_curve,
+       fig_fee_frontier, fig_cascade, fig_efficiency, fig_pair_comparison)

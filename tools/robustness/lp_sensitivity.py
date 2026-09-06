@@ -102,8 +102,22 @@ def _specifications(n_iter):
             )
     add('response_scale_0.5x', response_scale=0.5 * base['response_scale'])
     add('response_scale_2x', response_scale=2.0 * base['response_scale'])
-    add('outside_option_0.5x', outside_option=0.5 * base['outside_option'])
-    add('outside_option_2x', outside_option=2.0 * base['outside_option'])
+    # A multiplicative arm collapses onto the baseline where the baseline is
+    # zero, which is not a corner case but the calibration of any pair whose
+    # policy rates are negative: the model floors the cost of capital at zero
+    # and the outside option follows it. The arm then steps additively from a
+    # stated yardstick instead, so the design keeps two distinct cells and the
+    # label says which rule produced them.
+    _option = float(base['outside_option'])
+    if _option > 0.0:
+        add('outside_option_0.5x', outside_option=0.5 * _option)
+        add('outside_option_2x', outside_option=2.0 * _option)
+    else:
+        # Two point nine per cent a year at one second to the tick, the cost of
+        # capital the EUR/USD calibration carries, used here only as a scale.
+        _yardstick = 1.3319e-9
+        add('outside_option_plus_half_yardstick', outside_option=0.5 * _yardstick)
+        add('outside_option_plus_yardstick', outside_option=_yardstick)
     add('entry_margin_0', entry_margin=0.0)
     add('entry_margin_0.5', entry_margin=0.5)
     return rows

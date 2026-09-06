@@ -449,9 +449,11 @@ def test_the_manuscript_matches_the_stored_runs():
     for label, value, places, where in rows:
         shown = f'{value:.{places}f}'
         body = mod._table_body(text, where)
-        if not any(w in body for w in
-                   {shown, shown.lstrip('+'),
-                    f'+{shown}' if value > 0 else shown}):
+        # Every way the manuscript is allowed to write the number, the tool's
+        # own list. A figure in the thousands is typeset with a separator, and
+        # a check that knows only the bare digits fails on presentation and
+        # not on content; this one carried its own shorter list and did.
+        if not any(w in body for w in mod.spellings(value, places)):
             missing.append(f'{label}={shown}')
     check_bool("every checked figure appears in its own table", not missing,
                "; ".join(missing))
@@ -461,19 +463,37 @@ def test_the_manuscript_matches_the_stored_runs():
     # new run exists; stale reports must never be treated as current claims.
     sigs = mod.signatures()
     pnl_current = (sigs['baseline'] == sigs['current'] == sigs['sweep'])
+    # What a reader of the typeset paper meets. Read against the source, this
+    # check passed on a marker sitting in a LaTeX comment above a table that
+    # went on presenting the figures as live results.
+    shown_text = mod.visible_text(text)
+    provenance = mod.pair_provenance()
     if pnl_current:
         check_bool("the check covers the intervals and not only the points",
                    len(rows) >= 30, f"{len(rows)}")
+    elif provenance['reports_are_from_another_pair']:
+        # A branch calibrated to one pair cannot reproduce another pair's
+        # results and is not meant to. That is not staleness, and withdrawing
+        # the primary pair's results from a paper that reports both pairs
+        # would remove the comparison the paper is making. What it does owe
+        # the reader is the label, in the text and not in a comment.
+        check_bool("results from the other pair's branch are labelled in the text",
+                   mod.PAIR_PROVENANCE_MARKER in shown_text,
+                   "the manuscript presents the primary pair's stored runs "
+                   "without saying in the text that they come from that branch")
     else:
         check_bool("stale provider results are explicitly withdrawn",
-                   mod.WITHDRAWN_MARKER in text,
+                   mod.WITHDRAWN_MARKER in shown_text,
                    "the manuscript still presents stale P&L")
     counts = mod.seed_counts()
     check_bool("every current stored report carries three hundred seeds",
                all(v == 300 for v in counts.values()), f"{counts}")
-    check_bool("current reports are used or stale ones are withdrawn",
-               pnl_current or mod.WITHDRAWN_MARKER in text,
-               f"{sigs}")
+    check_bool("current reports are used, or labelled, or withdrawn",
+               pnl_current
+               or (provenance['reports_are_from_another_pair']
+                   and mod.PAIR_PROVENANCE_MARKER in shown_text)
+               or mod.WITHDRAWN_MARKER in shown_text,
+               f"{sigs} | {provenance}")
     build = mod.build_state()
     check_bool("the typeset manuscript exists and is newer than its source",
                build['pdf'] and build['fresh'], f"{build}")

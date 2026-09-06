@@ -58,6 +58,40 @@ PRIMARY_MODEL_PATH = Path(__file__).resolve().parent / "calibration" / "primary_
 PRIMARY_TARGETS_PATH = Path(__file__).resolve().parent / "calibration" / "primary_model_targets.json"
 
 
+# What CRISIS_PRESET holds when the manifest could not be read. It is not the
+# name of any episode, so the module imports and every command that would have
+# run an episode stops on an unknown preset. The fallback used to be the name
+# of a real episode of the primary pair, which on this branch is the one
+# outcome the function below says it refuses: the wrong episode measured
+# against the wrong crisis targets, silently.
+UNNAMED_EPISODE = '__no_episode_declared__'
+
+
+def _crisis_scenario() -> str:
+    """The episode this calibration studies, named once in the manifest.
+
+    A manifest that cannot be read at all leaves a sentinel, since the model
+    has to be importable without one, and the sentinel names no episode, so
+    nothing runs on it. A manifest that reads but does not name the episode is
+    a different matter: on a branch calibrated to another pair that would run
+    the wrong episode against the wrong crisis targets and say nothing, so it
+    is refused outright.
+    """
+    try:
+        spec = load_primary_model_spec()
+    except (OSError, TypeError, ValueError):
+        return UNNAMED_EPISODE
+    try:
+        return str(spec['crisis_scenario'])
+    except (KeyError, TypeError, ValueError):
+        raise KeyError(
+            'calibration/primary_model.json declares no crisis_scenario. The '
+            'episode every crisis measurement is taken on has to be named '
+            'there, since a default would run one pair\'s episode against '
+            "another pair's targets without saying so.")
+
+
+
 def load_primary_model_spec(config_path: Optional[Path] = None) -> dict:
     path = PRIMARY_MODEL_PATH if config_path is None else Path(config_path)
     if not path.exists():
@@ -353,13 +387,6 @@ REALISM_PRESETS = {
         toxic_flow_decay=0.90,
         liquidity_shock_decay=0.91,
     ),
-    # ── Identified episodes, EUR/USD ────────────────────────────────
-    # Severity on each is set so that impaired dealer capacity lands between
-    # roughly one half and nine tenths over the crisis window. Below one half
-    # the contagion channel of BIS WP 1138 does not engage at all, and at one
-    # the sector is evacuated by the script before any feedback acts, which
-    # leaves the channel nothing to amplify and fails the acceptance check that
-    # forbids a path evacuating every dealer.
     "dash_for_cash_2020": dict(
         shock_iter=350,
         shock_mode="realism",
@@ -449,6 +476,9 @@ REALISM_PRESETS = {
 # One family remains. The bundles that named a fixed split between the
 # venues went with the counterfactual they served.
 PRESETS = dict(REALISM_PRESETS)
+
+# Read once at import so a runner cannot disagree with the manifest.
+CRISIS_PRESET = _crisis_scenario()
 
 
 def _format_preset_help() -> str:
@@ -1086,7 +1116,8 @@ def build_parser(default_venue_choice_rule: str = "liquidity_aware") -> argparse
                         "separates the flight of provider capital from the "
                         "schedule. reallocation funds the facility out of the "
                         "dealer sector, holding total market capital fixed.")
-    g.add_argument("--arm-spread-bps", type=float, default=3.469,
+    g.add_argument("--arm-spread-bps", type=float,
+                   default=calibrated_default('arm_spread_bps', 3.469),
                    dest="arm_spread_bps",
                    help="Fixed bid ask spread the obliged quoter shows, in "
                         "basis points, matched to the round trip cost of the "
@@ -2574,6 +2605,8 @@ COMMANDS = {
     'arms': 'the resource matched comparison of the facility arms',
     'welfare': 'the welfare account for one arm against the dealer only control',
     'selection': 'the markout of the flow each venue fills, calm against crisis',
+    'identify': 'what moves the calm quoted spread, one parameter at a time',
+    'participation': 'the crisis share a provider covers, by outside option',
     'figures': 'the figures of the article, redrawn from the current artifacts',
     'calibrate': 'the coordinate search over the declared parameters',
     'config': 'the calibrated configuration and where each value came from',
@@ -2659,6 +2692,12 @@ def main(argv: Optional[list[str]] = None) -> int:
     if command == 'selection':
         from tools.robustness.flow_selection import main as run_selection
         return int(run_selection(rest) or 0)
+    if command == 'identify':
+        from tools.robustness.spread_identification import main as run_identify
+        return _delegate(run_identify, 'spread_identification')
+    if command == 'participation':
+        from tools.robustness.participation_grid import main as run_grid
+        return _delegate(run_grid, 'participation_grid')
     return 2
 
 

@@ -226,9 +226,15 @@ def test_arbitrage_share_summary_separates_zero_denominator_from_invalid():
 
 
 def test_lp_operating_result_nets_pure_capital_flows_to_zero():
+    # The shock sits far enough into the run for the calm window to fit behind
+    # it and the crisis window in front. Both windows are read from the module,
+    # so a fixture that pins its own offsets stops testing the measurement the
+    # moment either window moves; this one is placed against them.
     pool = HFMMPool(x=1000.0, y=100000.0, A=18.0, fee=0.0005)
     pool.record_state()
-    for tick in range(400):
+    shock = -R.CALM[0] + 40
+    ticks = shock + R.CRISIS[1] + 40
+    for tick in range(ticks):
         if tick % 2:
             pool.remove_liquidity(0.001)
         else:
@@ -236,11 +242,11 @@ def test_lp_operating_result_nets_pure_capital_flows_to_zero():
         pool.record_state()
     sim = SimpleNamespace(
         amm_pools={'hfmm': pool},
-        logger=SimpleNamespace(fair_price_series=np.full(400, 100.0)),
+        logger=SimpleNamespace(fair_price_series=np.full(ticks, 100.0)),
     )
 
-    calm = R._lp_operating_metrics(sim, shock=200, phase='calm')
-    crisis = R._lp_operating_metrics(sim, shock=200, phase='crisis')
+    calm = R._lp_operating_metrics(sim, shock=shock, phase='calm')
+    crisis = R._lp_operating_metrics(sim, shock=shock, phase='crisis')
     assert calm['lp_operating_result_measurable'] == 1.0
     assert crisis['lp_operating_result_measurable'] == 1.0
     assert abs(calm['lp_operating_result_pct']) < 1e-9

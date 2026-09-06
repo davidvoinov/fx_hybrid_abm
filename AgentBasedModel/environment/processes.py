@@ -226,9 +226,21 @@ class MarketEnvironment:
         self._price: Optional[float] = float(price) if price is not None else None
         self._price_anchor: Optional[float] = float(price) if price is not None else None
         self._drift = drift
-        self._price_reversion = max(0.0, price_reversion)
-        self._price_vol_scale = max(0.0, price_vol_scale)
-        self._funding_rate_scale = max(0.0, funding_rate_scale)
+        # A negative value here is a calibration that the model cannot carry,
+        # and clamping it to zero silently reported a cost of capital the run
+        # never used. It matters for a pair whose policy rates are negative,
+        # where the honest reading is a floor of zero and not a quiet one.
+        for _name, _value in (('price_reversion', price_reversion),
+                              ('price_vol_scale', price_vol_scale),
+                              ('funding_rate_scale', funding_rate_scale)):
+            if _value < 0.0:
+                raise ValueError(
+                    f'{_name} is {_value!r}. The model floors it at zero, so a '
+                    'negative calibration would be silently discarded. Set it '
+                    'to zero and record why in the manifest.')
+        self._price_reversion = float(price_reversion)
+        self._price_vol_scale = float(price_vol_scale)
+        self._funding_rate_scale = float(funding_rate_scale)
 
         # The exogenous state is drawn from its own generator. Sharing the
         # global one made the price path depend on how many numbers the rest

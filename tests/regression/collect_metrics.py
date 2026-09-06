@@ -52,10 +52,18 @@ def build_snapshot() -> dict:
             "total_volume": float(data.get("total_volume", 0.0)),
         }
 
+    # Which tree this fingerprint belongs to. Without it the file says what
+    # the model did and not which model did it, so a stale baseline and a
+    # current one are indistinguishable by inspection. The comparison ignores
+    # everything under meta, so this records provenance without loosening the
+    # check.
+    from tools.robustness.signatures import model_signature
+
     snapshot = {
         "meta": {
             "seed": SEED,
             "n_iter": N_ITER,
+            "model_signature": model_signature(),
         },
         "metrics": {
             "n_iterations": int(summary.get("n_iterations", 0)),

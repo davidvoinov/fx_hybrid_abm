@@ -22,6 +22,15 @@ sys.path.insert(0, ROOT)
 
 ARTICLE = os.path.join(ROOT, 'EconMod', 'article', 'econmod.tex')
 WITHDRAWN_MARKER = 'PNL_RESULTS_WITHDRAWN_PENDING_RECOMPUTATION'
+# A marker in a LaTeX comment withdraws nothing. The manuscript carried this
+# one at the top of a section, commented out, while the table below it
+# presented the figures as live results, and the check that reads the source
+# for the marker passed on a line no reader of the typeset paper can see. A
+# withdrawal has to be in the text.
+# The marker a reader has to be able to meet, so it is a phrase of the prose
+# and not a token. A token would have to be typeset to satisfy this check,
+# which is absurd, or hidden in a comment, which is the failure being fixed.
+PAIR_PROVENANCE_MARKER = 'computed on the branch calibrated to that pair'
 
 
 def _report(path):
@@ -97,6 +106,30 @@ def _sweep_blocks(path):
     return blocks
 
 
+def spellings(value, places):
+    """Every way the manuscript is allowed to write one number.
+
+    A figure in the thousands is typeset with a separator, so a checker that
+    knows only the bare digits fails on presentation and not on content.
+    """
+    shown = f'{value:.{places}f}'
+    out = {shown, shown.lstrip('+')}
+    if value > 0:
+        out.add('+' + shown)
+    whole, _, frac = shown.lstrip('+-').partition('.')
+    if len(whole) > 3:
+        grouped = ''
+        while len(whole) > 3:
+            grouped = '{,}' + whole[-3:] + grouped
+            whole = whole[:-3]
+        grouped = whole + grouped + ('.' + frac if frac else '')
+        sign = '-' if shown.startswith('-') else ''
+        out.add(sign + grouped)
+        if value > 0:
+            out.add('+' + grouped)
+    return out
+
+
 def _table_body(text, label):
     """The rows of the labelled table, so a number has to sit in it.
 
@@ -117,6 +150,98 @@ def _table_body(text, label):
     ]
     j = min(endings) if endings else len(text)
     return text[i:j]
+
+
+def _branch_claims():
+    """Numbers the second-pair section and its table report.
+
+    Empty where the branch artifacts are absent or were produced by a
+    different model, which is how the main pair sees this file.
+    """
+    import json
+    from tools.robustness.signatures import model_signature
+
+    folder = os.path.join(ROOT, 'output', 'eurchf')
+    if not os.path.isdir(folder):
+        return []
+    current = model_signature()
+
+    def load(name):
+        path = os.path.join(folder, name)
+        if not os.path.exists(path):
+            return None
+        with open(path, encoding='utf-8') as fh:
+            doc = json.load(fh)
+        prov = doc.get('provenance') if isinstance(doc.get('provenance'), dict) else doc
+        stamp = (prov.get('simulation_model_signature')
+                 or prov.get('model_signature'))
+        return doc if stamp == current else None
+
+    rows = []
+    arms = load('facility_arms.json')
+    if arms:
+        check = arms.get('decomposition_check') or {}
+        total = check.get('total_effect')
+        if total is not None:
+            rows.append(('branch total peak effect', abs(float(total)), 2, '*'))
+        for name in ('committed_quoting', 'pricing_schedule', 'capital_flight'):
+            block = (arms.get('contrasts') or {}).get(name, {}).get('delta_peak')
+            if not block:
+                continue
+            rows.append((f'branch {name} peak', float(block['mean']), 2, '*'))
+            rows.append((f'branch {name} lower', float(block['ci'][0]), 2, '*'))
+            rows.append((f'branch {name} upper', float(block['ci'][1]), 2, '*'))
+
+    for arm in ('reserve', 'dealer_of_last_resort', 'passive_book'):
+        doc = load(f'welfare_{arm}.json')
+        if not doc:
+            continue
+        med = doc['summary']['medians']
+        benefit = float(med['matched_notional_user_benefit_bps'])
+        loss = -float(med['lp_operating_result'])
+        rows.append((f'branch {arm} benefit', benefit, 2, 'tab:pairs'))
+        rows.append((f'branch {arm} loss', loss, 0, 'tab:pairs'))
+        rows.append((f'branch {arm} loss per bp', loss / benefit, 0, 'tab:pairs'))
+
+    # The sensitivity the manuscript reports for the zero cost of capital. It
+    # is a claim about a number and nothing checked it.
+    sensitivity = load('welfare_reserve_oo10bps.json')
+    if sensitivity:
+        med = sensitivity['summary']['medians']
+        rows.append(('branch outside option benefit',
+                     float(med['matched_notional_user_benefit_bps']), 2, '*'))
+        rows.append(('branch outside option operating result',
+                     -float(med['lp_operating_result']), 0, '*'))
+
+    # The two exercises the manuscript added for the referee: what identifies
+    # the calm spread, and what retains a provider. Both are claims about
+    # numbers in the text and neither was checked against the run behind it.
+    ablation = load('spread_identification.json')
+    if ablation:
+        rows.append(('branch ablation baseline spread',
+                     float(ablation['baseline_quoted_spread_mean_bps']), 3, '*'))
+
+    grid = load('participation_grid.json')
+    if grid:
+        rows.append(('branch retention ceiling bps pa',
+                     float(grid['retention_ceiling_bps_pa']), 0, '*'))
+        rows.append(('branch calm gain per window pct',
+                     float(grid['calm_gain_pct_of_value_per_window']), 6, '*'))
+        rows.append(('branch crisis loss per window pct',
+                     float(grid['crisis_loss_pct_of_value_per_window']), 2, '*'))
+
+    flow = load('flow_selection.json')
+    if flow:
+        for state, block in flow.items():
+            if not isinstance(block, dict) or 'facility' not in block:
+                continue
+            if state == 'calm':
+                continue
+            rows.append(('branch crisis facility markout',
+                         abs(float(block['facility']['mean'])), 2, '*'))
+            rows.append(('branch crisis book markout',
+                         abs(float(block['book']['mean'])), 2, '*'))
+    return rows
 
 
 def claims():
@@ -164,6 +289,12 @@ def claims():
             triple(f'uniform {bps} crisis', b['rows']['crisis'], 4, 'tab:lppnl')
         if b['breakeven']:
             triple(f'uniform {bps} break even', b['breakeven'], 2, 'tab:lppnl')
+
+    # The second pair carries the paper's headline result and nothing checked
+    # it. These rows are read from the artifacts of that branch, and only when
+    # those artifacts were produced by the model now in the tree, so a stale
+    # run cannot quietly certify the manuscript.
+    out.extend(_branch_claims())
 
     # The fee frontier is argued in prose, using the endpoints of the sweep.
     # Checking only the table let that paragraph keep the numbers of a market
@@ -218,9 +349,21 @@ def _calibration_claims():
         return []
     scenarios = report.get('scenario_metrics', {})
     calm = scenarios.get('baseline_primary', {})
-    # Price discovery is the convergence of the traded mid onto the latent value
-    # after a displacement, so it is only defined in a scenario that has one.
-    crisis = scenarios.get('dealer_liquidity_crisis', {})
+    # Price discovery is the convergence of the traded mid onto the latent
+    # value after a displacement, so it is only defined in a scenario that has
+    # one. The name read here was a literal, and it was the name of a preset
+    # this panel does not carry, so the lookup returned nothing and the row it
+    # feeds was dropped in silence while the tool reported a pass. Taking the
+    # name from the panel itself is what makes the check hold across pairs:
+    # this table belongs to the primary pair and is checked against the
+    # primary pair's panel, whose episode is its own, and the same code reads
+    # a second pair's panel without being told which episode that one ran.
+    episode = next(
+        (name for name in scenarios
+         if name not in ('baseline_primary', 'funding_liquidity_shock')),
+        None,
+    )
+    crisis = scenarios.get(episode, {}) if episode else {}
     specs = [
         ('mean quoted spread', calm, 'quoted_spread_mean_bps', 2),
         ('dealer order median life', calm, 'dealer_order_lifetime_median_seconds', 1),
@@ -309,8 +452,85 @@ def signatures():
     swp_path = os.path.join(ROOT, 'output', 'resilience',
                             'lp_pnl_uniform_sweep_300.txt')
     swp_sig = _report(swp_path).get('signature')
+    # A report that declares no measurement signature compares equal to
+    # nothing, so the comparison below reads stale whatever the truth is. That
+    # is what these two do: they carry a model signature line and no
+    # measurement one. It is reported as its own state, since a comparison
+    # that cannot be made is not the same as one that fails.
     return {'current': T.run_signature(), 'baseline': base.get('signature'),
-            'sweep': swp_sig}
+            'sweep': swp_sig,
+            'baseline_model_signature': base.get('model_signature'),
+            'reports_declare_a_measurement_signature': bool(
+                base.get('signature') and swp_sig)}
+
+
+def visible_text(text):
+    """The manuscript as a reader of the typeset paper meets it.
+
+    Everything after an unescaped per cent sign is a LaTeX comment and reaches
+    no page. A check that reads the source without removing them can be
+    satisfied by a line nobody sees, which is how a withdrawal of stale
+    results came to sit above a table still presenting them.
+    """
+    out = []
+    for line in text.splitlines():
+        kept = []
+        escaped = False
+        for character in line:
+            if escaped:
+                kept.append(character)
+                escaped = False
+                continue
+            if character == '\\':
+                kept.append(character)
+                escaped = True
+                continue
+            if character == '%':
+                break
+            kept.append(character)
+        out.append(''.join(kept))
+    # Runs of whitespace collapse to one space. A marker that is a phrase of
+    # the prose has to be found wherever the source happens to wrap, and the
+    # first version of this check missed one because a line break fell in the
+    # middle of it.
+    return ' '.join(' '.join(out).split())
+
+
+def pair_provenance():
+    """Which of two things a stored report that does not match the tree is.
+
+    A branch calibrated to one pair cannot reproduce another pair's results,
+    and it is not supposed to: the manuscript reports both pairs and the main
+    results are the primary pair's. That is a different situation from a
+    report produced by a superseded version of the calibration now in the
+    tree, and only the second is a reason to withdraw anything. The two were
+    not distinguished, so on this branch the check read stale for results that
+    were never going to match and could not be recomputed here.
+
+    The branch says which pair it is calibrated to, and a report carrying the
+    primary pair's episode is declared foreign and not stale. It still has to
+    be labelled in the text the reader sees.
+    """
+    import json
+    from main import CRISIS_PRESET
+    path = os.path.join(ROOT, 'calibration', 'primary_model.json')
+    try:
+        with open(path, encoding='utf-8') as handle:
+            pair = json.load(handle).get('pair_class')
+    except (OSError, ValueError):
+        pair = None
+    sigs = signatures()
+    current = sigs['baseline'] == sigs['current'] == sigs['sweep']
+    return {
+        'pair_class': pair,
+        'branch_episode': CRISIS_PRESET,
+        'reports_match_this_tree': bool(current),
+        # The stored provider chain is the primary pair's. This branch runs a
+        # different episode, so its own run of that chain measures a different
+        # market and the two can never agree.
+        'reports_are_from_another_pair': bool(
+            not current and pair is not None and pair != 'EUR/USD'),
+    }
 
 
 def build_state():
@@ -366,9 +586,7 @@ def main():
     for label, value, places, where in rows:
         shown = f'{value:.{places}f}'
         body = _table_body(text, where)
-        wanted = {shown, shown.lstrip('+'),
-                  f'+{shown}' if value > 0 else shown}
-        found = any(w in body for w in wanted)
+        found = any(w in body for w in spellings(value, places))
         print(f'{label:36s} {shown:>10s}  {"yes" if found else "NO"}')
         if not found:
             bad.append((label, shown, where))

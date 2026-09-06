@@ -10,20 +10,15 @@ from tests.regression.collect_metrics import build_snapshot
 BASELINE_PATH = Path("tests/baselines/fx_regression_baseline.json")
 
 
-ABS_TOLERANCES = {
-    "metrics.n_iterations": 0.0,
-    "metrics.n_trades": 0.0,
-    "metrics.avg_cost_bps.clob_Q1": 0.5,
-    "metrics.avg_cost_bps.clob_Q5": 1.0,
-    "metrics.avg_cost_bps.clob_Q20": 2.0,
-    "metrics.avg_cost_bps.cpmm_Q5": 1.0,
-    "metrics.avg_cost_bps.hfmm_Q5": 1.0,
-    "metrics.avg_flow_share.clob": 0.03,
-    "metrics.avg_flow_share.cpmm": 0.03,
-    "metrics.avg_flow_share.hfmm": 0.03,
-    "metrics.cost_correlation_Q5.clob_cpmm": 0.08,
-    "metrics.cost_correlation_Q5.clob_hfmm": 0.08,
-}
+# One seeded run is bit for bit reproducible on the same tree, so the only
+# difference this check has to tolerate is floating-point dust. It used to
+# carry a per-metric table of absolute allowances instead, up to two basis
+# points on quantities whose own scale is a fraction of one, and a third of a
+# unit of correlation. Nothing of that size is dust and a change detector set
+# that loose cannot do the job the module is named for: the correction of the
+# price grid moved the large-trade cost on this run from 0.75 basis points to
+# 1.47, a doubling, and the table passed it without a word.
+TOLERANCE = 1e-6
 
 
 def flatten(data: dict, prefix: str = "") -> dict[str, float]:
@@ -38,13 +33,9 @@ def flatten(data: dict, prefix: str = "") -> dict[str, float]:
 
 
 def tolerance_for(path: str) -> float:
-    if path in ABS_TOLERANCES:
-        return ABS_TOLERANCES[path]
-    if "theta_bins" in path and path.endswith("total_volume"):
-        return 15.0
-    if "theta_bins" in path and path.endswith("avg_cost_bps"):
-        return 2.0
-    return 1e-6
+    """One allowance, and it is for arithmetic and not for behaviour."""
+    del path
+    return TOLERANCE
 
 
 def compare() -> list[str]:

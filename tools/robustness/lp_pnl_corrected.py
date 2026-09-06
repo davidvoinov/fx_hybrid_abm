@@ -48,7 +48,7 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.insert(0, ROOT)
 
 from main import (build_parser, _apply_preset_defaults, _resolve_main_routing,
-                  _auto_stress_around_shock, _seed_all, build_sim)
+                  _auto_stress_around_shock, _seed_all, build_sim, CRISIS_PRESET)
 from tools.robustness.signatures import (
     calibration_semantics,
     measurement_signature,
@@ -61,9 +61,24 @@ from tools.robustness.signatures import (
 # seed, so a provider result measured on it was read against a scripted
 # outcome. lp_survival imports these, so the whole provider chain moves with
 # them.
-PRESET = 'dash_for_cash_2020'
+PRESET = CRISIS_PRESET
 N_ITER = 1000
-CALM = (-160, -60)          # window offsets relative to the shock
+# A hundred and fifty periods, the same length as the crisis window below, so
+# that a gain earned in one state and a loss taken in the other are earned and
+# taken over the same amount of time. It ran a hundred periods while the
+# crisis window ran a hundred and fifty, and every comparison of the two
+# states inherited the difference: the count of calm windows one crisis window
+# consumes was overstated by about half.
+#
+# It is placed where it is by the two constraints that bound it. It opens at
+# the end of the provider warm up, which is three over the return signal's
+# smoothing constant, a hundred and fifty periods at the calibrated 0.02;
+# before that a provider does not act on its own return at all and the window
+# would measure a population that cannot respond. It closes fifty periods
+# short of the shock. Nothing exogenous happens in those fifty, since the
+# stress overlay starts at the shock and not before, so the margin is there
+# for the endogenous state alone.
+CALM = (-200, -50)          # window offsets relative to the shock
 # A hundred and fifty periods, matching the resilience comparison. At a
 # hundred the window was shorter than the fastest exit a provider can
 # complete, since the least patient of them needs a hundred and forty five

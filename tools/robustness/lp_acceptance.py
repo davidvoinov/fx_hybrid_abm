@@ -882,12 +882,13 @@ def validate(protocol: dict, protocol_sha256: str,
         'joint_patience_580_ewma_0.01',
         'joint_patience_580_ewma_0.05',
     }
+    # Read from the grid itself and not from a copy of it. The two had to
+    # agree and nothing made them: an arm whose label depends on the
+    # calibration, as the outside-option arm does where the baseline is zero,
+    # renamed itself here and the copy went on naming the arm that no longer
+    # existed.
     expected_labels = expected_joint | {
-        'baseline', 'patience_145', 'patience_580',
-        'ewma_alpha_0.01', 'ewma_alpha_0.05',
-        'response_scale_0.5x', 'response_scale_2x',
-        'outside_option_0.5x', 'outside_option_2x',
-        'entry_margin_0', 'entry_margin_0.5',
+        label for label, _ in lp_specifications(SURVIVAL_N_ITER)
     }
     requested_per_spec = int(
         sensitivity.get('requested_seeds_per_specification', 0) or 0

@@ -1,5 +1,5 @@
 {
-  "protocol_version": "book-lp-final-v5",
+  "protocol_version": "book-lp-final-v5.3",
   "frozen_at": "2026-08-21",
   "scope": "Computational closure of the EBS book calibration and endogenous AMM-LP block. Manuscript prose is outside this protocol.",
   "revision_history": [
@@ -103,6 +103,26 @@
       ],
       "thresholds_changed": false,
       "holdout_opened_at_freeze": false
+    },
+    {
+      "version": "book-lp-final-v5.3",
+      "frozen_at": "2026-09-06",
+      "result": "measurement_defects_corrected",
+      "reason": "Defects in the measurement and in the entry point, none of them a calibration choice. The quoting increment the manifest declares reached no quote, because each price was snapped to it and then rounded again onto a coarser grid. The calm window ran a hundred periods while the crisis window ran a hundred and fifty, so every comparison of the two states divided a gain earned over one span into a loss taken over another. Several literals that belong to a pair were written into the measurement code, where a second pair cannot reach them.",
+      "changes": [
+        "round_price, floor_price and ceil_price no longer re-round to three decimals after snapping to the tick, so the declared increment is the grid. Every stored trajectory moves.",
+        "The calm window becomes a hundred and fifty periods, the same length as the crisis window, running from the end of the provider warm up to fifty short of the shock.",
+        "The bound on the non-bank lifetime atom share is judged by what its tail does to the median it protects, and no longer by a per-seed bound. A majority of the panel must comply so that there is a remainder to compare the median against.",
+        "The identified episode and the price the obliged quoter is matched to are declared in the manifest, where they were literals in the entry point and in each measurement module.",
+        "A negative price reversion, volatility scale or funding rate is refused instead of being clamped to zero in silence.",
+        "The outside-option sensitivity arm steps additively where its baseline is zero, since a multiplicative arm collapses onto the baseline there.",
+        "The regression fingerprint carried per-metric allowances up to two basis points on quantities whose own scale is a fraction of one, and passed a doubling of the large-trade cost without a word. One arithmetic allowance replaces them and the baseline records the tree it fingerprints.",
+        "The manuscript check reads the text a reader meets, so a withdrawal in a LaTeX comment no longer satisfies it, and it separates a report produced by another pair branch from one produced by a superseded version of this calibration.",
+        "The claims tool takes the episode name from the panel it reads, where it carried a literal that no panel declares, so one row of the calibration table went unchecked while the tool reported a pass.",
+        "Thousands separators are one shared list of spellings, so a four figure number in a table is checkable.",
+        "The figure registry names every figure the manuscript prints, including the one comparing two pairs, which no run of the figure command could reach.",
+        "welfare_accounting.annual_frame acquires a caller, and identify and participation are reachable from the entry point."
+      ]
     }
   ],
   "phases": {
@@ -130,7 +150,8 @@
     "maximum_nonbank_completed_lifetime_atom_share": 0.35,
     "maximum_uncategorized_lifecycle_share_per_class": 0.0,
     "maximum_same_tick_scheduled_end_share_per_class": 0.25,
-    "minimum_completed_lifecycle_events_per_seed_per_class": 100
+    "minimum_completed_lifecycle_events_per_seed_per_class": 100,
+    "nonbank_lifetime_atom_share_panel_majority": 0.5
   },
   "lp_design": {
     "scenario": "dash_for_cash_2020",

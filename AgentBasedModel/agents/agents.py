@@ -338,17 +338,30 @@ class ExchangeAgent:
     def _tick_size(self) -> float:
         return max(1e-4, float(getattr(self, '_price_tick', 0.01)))
 
+    # The second rounding exists to clear the floating-point dust that a
+    # division and a multiplication leave behind, and it was set at three
+    # decimals. Three decimals is itself a grid, of one thousandth, and it is
+    # coarser than the increment this branch declares: the EBS decimal pip at
+    # the floor rate is 0.0008326, so every price the model quoted was snapped
+    # to the pip and then snapped off it again onto a grid twenty per cent
+    # wider. Not one quoted price in the runs was a multiple of the increment
+    # the manifest names. Ten decimals clears the dust and leaves the grid the
+    # calibration declares, which is the only grid there should be.
+    _PRICE_DUST_PLACES = 10
+
     def round_price(self, price: float) -> float:
         tick = self._tick_size()
-        return round(round(float(price) / tick) * tick, 3)
+        return round(round(float(price) / tick) * tick, self._PRICE_DUST_PLACES)
 
     def floor_price(self, price: float) -> float:
         tick = self._tick_size()
-        return round(_math.floor(float(price) / tick + 1e-12) * tick, 3)
+        return round(_math.floor(float(price) / tick + 1e-12) * tick,
+                     self._PRICE_DUST_PLACES)
 
     def ceil_price(self, price: float) -> float:
         tick = self._tick_size()
-        return round(_math.ceil(float(price) / tick - 1e-12) * tick, 3)
+        return round(_math.ceil(float(price) / tick - 1e-12) * tick,
+                     self._PRICE_DUST_PLACES)
 
     def _background_qty_near_mid(self, reference_price: float, corridor_bps: float) -> dict:
         if reference_price <= 0:

@@ -13,7 +13,7 @@ The figure command carries a second obligation. Its runner reports the figures
 it managed to draw and swallows the ones it could not, so a run that half fails
 still ends. Since the article keeps whatever the previous run wrote, a partial
 set leaves stale figures beside fresh ones with nothing to say so, and the
-command has to fail rather than return quietly.
+command has to fail and not return quietly.
 """
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ import main as entry
 def test_every_advertised_command_is_dispatched():
     """The registry and the dispatch must name the same set of commands.
 
-    The dispatch is read rather than executed, since the runners behind the
+    The dispatch is read and not executed, since the runners behind the
     heavy commands want artifacts and seeds that a unit test has no business
     producing. Reading it still catches both directions of the defect: a name
     advertised in the usage text with no branch to reach, and a branch no name

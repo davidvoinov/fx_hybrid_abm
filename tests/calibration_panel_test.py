@@ -12,6 +12,7 @@ from calibration.fitter import (
 from calibration.runner import (
     MAX_DEALER_LIFETIME_ATOM_SHARE,
     MAX_NONBANK_LIFETIME_ATOM_SHARE,
+    MIN_NONBANK_LIFETIME_PANEL_MAJORITY,
     MAX_SAME_TICK_SCHEDULED_END_SHARE,
     MAX_UNCATEGORIZED_LIFECYCLE_SHARE,
     MIN_COMPLETED_LIFECYCLE_EVENTS,
@@ -103,8 +104,63 @@ def test_book_integrity_gates_reject_bulk_lifecycle_mechanics():
     assert not checks['dealer_lifecycle_atom_share_at_most_25pct']
     assert not checks['nonbank_lifecycle_reasons_fully_categorized']
     assert not checks['dealer_scheduled_ends_not_synchronized']
-    assert checks['nonbank_lifecycle_atom_share_at_most_35pct']
+    assert checks['nonbank_lifecycle_atom_share_does_not_carry_the_median']
 
+
+def test_the_nonbank_lifecycle_tail_is_judged_by_what_it_does_to_the_median():
+    """The bound protects a statistic, so the statistic is what is tested.
+
+    A per-seed form rejects panels that support the median perfectly well, and
+    a share of the panel only moves the arbitrariness from one number to
+    another. What the purpose derives is this: drop every seed outside the
+    bound and the panel median of the protected quantity must not move. A tail
+    that is incidental to the median is admitted and a tail that produces it
+    is not, which is the defect the bound was written against.
+    """
+    key = 'nonbank_lifecycle_atom_share_does_not_carry_the_median'
+    activation = ([True] * 281 + [False] * 19,
+                  [0.2] * 5 + [0.0] * 295,
+                  [0.4] * 288 + [0.0] * 12,
+                  [0.0] * 300)
+
+    incidental = _passing_book_integrity(300)
+    for seed in range(285, 300):
+        incidental['nonbank_lifecycle_max_atom_share'][seed] = 0.90
+        incidental['nonbank_order_lifetime_median_seconds'][seed] = 1.0
+    audit = _mechanism_audit(*activation, book_integrity=incidental)
+    assert audit['mechanism_checks'][key], (
+        'fifteen seeds of three hundred outside the bound leave the panel '
+        'median where it was, so they are not what the median is made of'
+    )
+
+    # A third of the panel outside the bound, all of it at one period, and a
+    # remainder spread either side of that. The kept median is five and the
+    # whole median is one, so the reported statistic is the tail's and not the
+    # panel's. This is the shape the bound was written against, and it needs
+    # a spread remainder to show itself: where every kept seed carries the
+    # same value, no minority can move the median off it.
+    carrying = _passing_book_integrity(300)
+    for seed in range(0, 100):
+        carrying['nonbank_lifecycle_max_atom_share'][seed] = 0.90
+        carrying['nonbank_order_lifetime_median_seconds'][seed] = 1.0
+    for seed in range(100, 160):
+        carrying['nonbank_order_lifetime_median_seconds'][seed] = 1.0
+    for seed in range(160, 300):
+        carrying['nonbank_order_lifetime_median_seconds'][seed] = 5.0
+    audit = _mechanism_audit(*activation, book_integrity=carrying)
+    assert not audit['mechanism_checks'][key], (
+        'dropping the hundred seeds outside the bound moves the panel median '
+        'from one to five, so the median is theirs and the check has to say so'
+    )
+
+    swamped = _passing_book_integrity(300)
+    for seed in range(150, 300):
+        swamped['nonbank_lifecycle_max_atom_share'][seed] = 0.90
+    audit = _mechanism_audit(*activation, book_integrity=swamped)
+    assert not audit['mechanism_checks'][key], (
+        'with half the panel outside the bound there is no remainder large '
+        'enough to compare the median against'
+    )
 
 def test_protocol_book_threshold_names_match_acceptance_code():
     protocol = json.loads((ROOT / 'calibration' / 'final_protocol.json').read_text())
@@ -124,6 +180,9 @@ def test_protocol_book_threshold_names_match_acceptance_code():
         ),
         'minimum_completed_lifecycle_events_per_seed_per_class': (
             MIN_COMPLETED_LIFECYCLE_EVENTS
+        ),
+        'nonbank_lifetime_atom_share_panel_majority': (
+            MIN_NONBANK_LIFETIME_PANEL_MAJORITY
         ),
     }
 

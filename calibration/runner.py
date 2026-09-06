@@ -61,6 +61,12 @@ MAX_DEALER_LIFETIME_ATOM_SHARE = 0.25
 # it catches the old provider-wide refresh pulse without rejecting the natural
 # discretisation of an independent geometric clock.
 MAX_NONBANK_LIFETIME_ATOM_SHARE = 0.35
+# The share of the seed panel that must sit inside the bound above before the
+# panel can be asked whether its tail carries the statistic. It is a majority
+# and not a high threshold, because it is not the test: the test is that the
+# median order lifetime does not move when the seeds outside the bound are
+# dropped, and that test needs a remainder large enough to compare against.
+MIN_NONBANK_LIFETIME_PANEL_MAJORITY = 0.5
 MAX_UNCATEGORIZED_LIFECYCLE_SHARE = 0.0
 MAX_SAME_TICK_SCHEDULED_END_SHARE = 0.25
 MIN_COMPLETED_LIFECYCLE_EVENTS = 100
@@ -304,6 +310,41 @@ def _mechanism_audit(ebs_seed_pass: list[bool], calm_peaks: list[float],
             float(value) <= threshold + 1e-15 for value in book_integrity[field]
         ))
 
+    def _tail_does_not_carry(field: str, threshold: float, protects: str,
+                             majority: float) -> bool:
+        """The tail does not carry the statistic the bound protects.
+
+        A per-seed bound answers a question about every draw, which is the
+        right form where a single breach would invalidate a measurement. This
+        bound is not of that kind. It exists so that a median order lifetime
+        is not assembled out of orders that begin and end in the same period,
+        and that purpose survives a tail, so a per-seed form rejects panels
+        that support the statistic perfectly well.
+
+        A share of the panel is the obvious weakening and it is the wrong one,
+        because the share has to be chosen and nothing derives it. What the
+        purpose does derive is a test of the statistic itself: drop every seed
+        outside the bound and the panel median of the protected quantity must
+        not move. That fails exactly when the tail is what produced the
+        number, which is the defect the bound was written against, and it
+        passes when the tail is incidental to it. A majority of the panel must
+        still comply, since a statistic cannot be shown to be clean against a
+        remainder too small to compare with.
+        """
+        values = [float(v) for v in book_integrity[field]]
+        protected = [float(v) for v in book_integrity[protects]]
+        if not (book_finite and values and len(protected) == len(values)):
+            return False
+        inside = [p for v, p in zip(values, protected)
+                  if v <= threshold + 1e-15]
+        if len(inside) <= majority * len(values):
+            return False
+        whole = _finite_median(protected)
+        kept = _finite_median(inside)
+        if not (math.isfinite(whole) and math.isfinite(kept)):
+            return False
+        return bool(abs(whole - kept) <= 1e-9 * max(1.0, abs(whole)))
+
     checks = {
         'complete_finite_seed_panel': bool(complete and finite and book_finite),
         'calm_activation_upper_95pct_at_most_5pct': bool(
@@ -331,9 +372,11 @@ def _mechanism_audit(ebs_seed_pass: list[bool], calm_peaks: list[float],
         'dealer_lifecycle_atom_share_at_most_25pct': _all_at_most(
             'dealer_lifecycle_max_atom_share', MAX_DEALER_LIFETIME_ATOM_SHARE
         ),
-        'nonbank_lifecycle_atom_share_at_most_35pct': _all_at_most(
-            'nonbank_lifecycle_max_atom_share', MAX_NONBANK_LIFETIME_ATOM_SHARE
-        ),
+        'nonbank_lifecycle_atom_share_does_not_carry_the_median':
+            _tail_does_not_carry('nonbank_lifecycle_max_atom_share',
+                                 MAX_NONBANK_LIFETIME_ATOM_SHARE,
+                                 'nonbank_order_lifetime_median_seconds',
+                                 MIN_NONBANK_LIFETIME_PANEL_MAJORITY),
         'dealer_lifecycle_reasons_fully_categorized': _all_at_most(
             'dealer_lifecycle_uncategorized_share',
             MAX_UNCATEGORIZED_LIFECYCLE_SHARE,
@@ -541,6 +584,9 @@ def _verify_protocol(protocol: dict[str, Any], target_payload: dict[str, Any],
         'minimum_completed_lifecycle_events_per_seed_per_class': (
             MIN_COMPLETED_LIFECYCLE_EVENTS
         ),
+        'nonbank_lifetime_atom_share_panel_majority': (
+            MIN_NONBANK_LIFETIME_PANEL_MAJORITY
+        ),
     }
     if protocol.get('book_integrity_thresholds') != expected_book_thresholds:
         raise ValueError(
@@ -646,6 +692,10 @@ def _panel_from_reports(overrides: dict[str, Any], target_payload: dict[str, Any
         }
 
     panel = fitter.evaluate_scenario_suite(median_metrics, run_label='calibration_seed_panel')
+    # One entry per observable. Two targets sharing a name would leave the
+    # dictionary below holding one status for both, whichever the evaluation
+    # emitted last, and the panel would certify one of them and never look at
+    # the other.
     ebs_observables = {
         'quoted_spread_mean_bps',
         'dealer_order_lifetime_median_seconds',
@@ -679,9 +729,9 @@ def _panel_from_reports(overrides: dict[str, Any], target_payload: dict[str, Any
     # The crisis the panel audits is the identified episode. The synthetic
     # preset that stood here evacuated the entire dealer sector on every seed,
     # so the mechanism checks were reading a scripted outcome.
-    crisis_peaks = [metric(report, 'dash_for_cash_2020', 'dealer_withdrawal_peak_share')
+    crisis_peaks = [metric(report, main_module.CRISIS_PRESET, 'dealer_withdrawal_peak_share')
                     for report in reports]
-    forced_peaks = [metric(report, 'dash_for_cash_2020', 'dealer_forced_pause_peak_share')
+    forced_peaks = [metric(report, main_module.CRISIS_PRESET, 'dealer_forced_pause_peak_share')
                     for report in reports]
     book_fields = (
         'book_two_sided_rate',

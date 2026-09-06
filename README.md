@@ -21,9 +21,32 @@ python -m main accept          # the acceptance panel against the frozen targets
 python -m main arms            # the resource matched comparison of the arms
 python -m main welfare --arm reserve
 python -m main selection       # the markout of the flow each venue fills
+python -m main identify        # what moves the calm quoted spread, parameter by parameter
+python -m main participation   # the crisis share a provider covers, by outside option
 python -m main figures         # the figures of the article, from the current artifacts
 python -m main calibrate       # the coordinate search over the declared parameters
 ```
+
+### This branch: EUR/CHF
+
+The model on this branch is calibrated to EUR/CHF and its episode is the removal
+of the Swiss franc floor on 15 January 2015. Three quantities differ from the
+EUR/USD fit and no equation does: the quoting increment, the annual volatility
+of the latent price and the overnight cost of committed capital, which is zero
+here because both legs of the pair carried negative policy rates. EBS is the
+primary venue for this pair, which is what makes the same sources usable.
+
+The episode imposes one number, a repricing of −14.40 per cent, taken from the
+ECB daily reference rate: 1.2010 from 9 to 14 January and 1.0280 on the 15th.
+What the dislocation then looks like is the model's to produce, and it is
+checked against a crisis gate drawn from the effective spreads Breedon, Chen,
+Ranaldo and Vause measure on EBS around the event. That gate is the first on
+this model that is not a calm-state statistic; without it the size of the shock
+is unconstrained.
+
+Every value and its source is recorded in `calibration/primary_model.json` under
+`calibration_notes`, and the rotation of the frozen protocol is recorded in
+`calibration/final_protocol.json` under `revision_history`.
 
 ### The comparison
 

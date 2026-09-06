@@ -69,12 +69,12 @@ import numpy as np
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.insert(0, ROOT)
 
-from main import (build_parser, _apply_preset_defaults, _resolve_main_routing,
-                  _auto_stress_around_shock, _seed_all, build_sim)
+from main import (load_primary_model_defaults, build_parser, _apply_preset_defaults, _resolve_main_routing,
+                  _auto_stress_around_shock, _seed_all, build_sim, CRISIS_PRESET)
 from AgentBasedModel.metrics.resilience import decay_rate_from_peak
 from tools.robustness.signatures import measurement_signature, model_signature
 
-PRESET = 'dash_for_cash_2020'
+PRESET = CRISIS_PRESET
 N_ITER = 1000
 WINDOW = 150
 # The size the outcome is quoted at, which is the median customer trade, and
@@ -98,8 +98,15 @@ OUTCOME_SIZES = (1.0, 2.0, 5.0, 20.0)
 # the slowest. A level taken from the control is the same bar for every arm.
 RECOVERY_FRACTION = 0.5
 RECOVERY_WINDOW = 5
+# The capital is what the reserve priced pool actually holds once its
+# providers have committed, read as opening capital plus wallets on seed 42,
+# and the obliged quoter is endowed with the same so the arms are matched on
+# resources. The spread is the pool's own round trip at the outcome size over
+# the pre-shock periods, which is the price the quoter is matched to; it is
+# read from the manifest, where its provenance is recorded, since a pair whose
+# quoting increment and volatility differ prices its pool differently.
 ARM_CAPITAL = 951_999.0
-ARM_SPREAD_BPS = 3.469
+ARM_SPREAD_BPS = float(load_primary_model_defaults().get('arm_spread_bps', 3.469))
 ARMS = ('none', 'reserve', 'reserve_frozen', 'dealer_of_last_resort',
         'passive_book')
 # Sized to what the dealer sector can give up while still quoting, which is
@@ -332,6 +339,16 @@ def main(argv=None):
         # arm carries all three against the control and not the peak alone.
         excess = _interval([rowset[s]['excess'] - control[s]['excess']
                             for s in common], seed=31)
+        # A decay rate exists only where the displacement decays. Under a
+        # permanent repricing the order book arms often do not return toward
+        # their own pre-shock level inside the window, the exponential fit has
+        # nothing to fit, and the seed drops out. Reporting the interval alone
+        # then hides how few seeds are behind it, so the share that could be
+        # fitted is carried beside it.
+        _fitted = [rowset[s]['decay_rate'] - control[s]['decay_rate']
+                   for s in common
+                   if rowset[s]['decay_rate'] == rowset[s]['decay_rate']
+                   and control[s]['decay_rate'] == control[s]['decay_rate']]
         decay = _interval([rowset[s]['decay_rate'] - control[s]['decay_rate']
                            for s in common], seed=32)
         report['arms'][arm] = {
@@ -339,7 +356,10 @@ def main(argv=None):
             'unavailable_share_median': withdrawal,
             'delta_peak': {'mean': peak[0], 'ci': [peak[1], peak[2]]},
             'delta_excess': {'mean': excess[0], 'ci': [excess[1], excess[2]]},
-            'delta_decay_rate': {'mean': decay[0], 'ci': [decay[1], decay[2]]},
+            'delta_decay_rate': {'mean': decay[0], 'ci': [decay[1], decay[2]],
+                                 'n_fitted': len(_fitted),
+                                 'fitted_share': (len(_fitted) / len(common)
+                                                  if common else float('nan'))},
             'delta_cost': {'mean': cost[0], 'ci': [cost[1], cost[2]]},
             'delta_quoted_cost': {'mean': quoted[0], 'ci': [quoted[1], quoted[2]]},
             'n': len(common),
@@ -391,6 +411,9 @@ def main(argv=None):
                             for s in common], seed=9)
         speed = _interval([_time_to(a[s], _bar(s)) - _time_to(b[s], _bar(s))
                            for s in common], seed=7)
+        _c_fitted = [s for s in common
+                     if a[s]['decay_rate'] == a[s]['decay_rate']
+                     and b[s]['decay_rate'] == b[s]['decay_rate']]
         decay = _interval([a[s]['decay_rate'] - b[s]['decay_rate']
                            for s in common], seed=8)
         report['contrasts'][name] = {
@@ -411,8 +434,24 @@ def main(argv=None):
               '  quoted at one size')
         print(f'{"":26s} speed  {speed[0]:+.1f} [{speed[1]:+.1f},{speed[2]:+.1f}]'
               ' periods to recover')
-        print(f'{"":26s} decay  {decay[0]:+.4f} [{decay[1]:+.4f},{decay[2]:+.4f}]'
-              ' per period')
+        # A decay rate needs a decay. Where a repricing is permanent the
+        # dislocation does not come back toward the pre-shock level inside the
+        # window, the fit has nothing to work on, and the few seeds that do
+        # fit are the unrepresentative ones. Below half the panel the interval
+        # is withheld and the coverage is stated in its place, so the row
+        # cannot be read as a measurement it is not.
+        _dec_n = len(_c_fitted)
+        _dec_share = _dec_n / len(common) if common else 0.0
+        report['contrasts'][name]['delta_decay_rate']['n_fitted'] = _dec_n
+        report['contrasts'][name]['delta_decay_rate']['fitted_share'] = _dec_share
+        if _dec_share < 0.5:
+            report['contrasts'][name]['delta_decay_rate']['measurable'] = False
+            print(f'{"":26s} decay  not measurable: the deviation decayed on '
+                  f'{_dec_n} of {len(common)} seeds')
+        else:
+            report['contrasts'][name]['delta_decay_rate']['measurable'] = True
+            print(f'{"":26s} decay  {decay[0]:+.4f} '
+                  f'[{decay[1]:+.4f},{decay[2]:+.4f}] per period')
 
     print(f'\nfunding source, facility held at {REALLOCATION_CAPITAL:,.0f} '
           f'quote units in both')

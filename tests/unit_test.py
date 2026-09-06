@@ -1430,7 +1430,8 @@ def test_primary_model_manifest_defaults():
                f"{nonbank_life}")
     check_bool("Participant composition is evaluated on executed maker volume",
                maker_mix.get('gating') is True
-               and maker_mix.get('statistic') == 'bank-dealer share of executed passive CLOB volume',
+               and maker_mix.get('statistic', '').startswith(
+                   'bank-dealer share of executed passive CLOB volume'),
                f"{maker_mix}")
 
     for observable in ('amm_volume_share', 'fx_amm_parameter_sanity'):

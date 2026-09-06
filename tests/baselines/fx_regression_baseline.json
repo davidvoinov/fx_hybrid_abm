@@ -1,24 +1,25 @@
 {
   "meta": {
+    "model_signature": "a9a7eb75a50d8148",
     "n_iter": 120,
     "seed": 42
   },
   "metrics": {
     "avg_cost_bps": {
-      "clob_Q1": 0.4071428325257122,
-      "clob_Q20": 0.646018417625947,
-      "clob_Q5": 0.5156642805116359,
+      "clob_Q1": 0.28673856018890476,
+      "clob_Q20": 0.5528217730923782,
+      "clob_Q5": 0.32325348462735304,
       "cpmm_Q5": null,
-      "hfmm_Q5": 3.703563889762845
+      "hfmm_Q5": 3.703659881461929
     },
     "avg_flow_share": {
-      "clob": 1.0,
+      "clob": 0.8947368421052632,
       "cpmm": 0.0,
-      "hfmm": 0.0
+      "hfmm": 0.10526315789473684
     },
     "cost_correlation_Q5": {
       "clob_cpmm": 0.0,
-      "clob_hfmm": -0.7051914875686844
+      "clob_hfmm": -0.12957525136529585
     },
     "n_iterations": 120,
     "n_trades": 7,
@@ -53,16 +54,16 @@
       },
       "small": {
         "clob": {
-          "avg_cost_bps": 0.48221352902477,
-          "total_volume": 19.0
+          "avg_cost_bps": 0.46588392061739725,
+          "total_volume": 17.0
         },
         "cpmm": {
           "avg_cost_bps": null,
           "total_volume": 0.0
         },
         "hfmm": {
-          "avg_cost_bps": null,
-          "total_volume": 0.0
+          "avg_cost_bps": 2.0809805899043567,
+          "total_volume": 2.0
         }
       }
     }

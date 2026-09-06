@@ -26,6 +26,19 @@ def _finite_median(series: list[float]) -> float:
     return 0.5 * (finite[mid - 1] + finite[mid])
 
 
+def _full_withdrawal_ticks(series, tolerance: float = 1e-9) -> float:
+    """Ticks on which every dealer is withdrawn through the endogenous channel."""
+    count = 0
+    for value in series or ():
+        try:
+            v = float(value)
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(v) and v >= 1.0 - tolerance:
+            count += 1
+    return float(count)
+
+
 def _finite_max(series: list[float]) -> float:
     finite = [float(value) for value in series if math.isfinite(value)]
     return max(finite) if finite else float('nan')
@@ -289,6 +302,14 @@ class CalibrationFitter:
             if 'low' in target_range and 'high' in target_range:
                 defaults[observable] = 0.5 * (float(target_range['low']) + float(target_range['high']))
                 continue
+            # A one-sided range states a bound and no centre, so the bound is
+            # the only value a default can honestly take.
+            if 'low' in target_range:
+                defaults[observable] = float(target_range['low'])
+                continue
+            if 'high' in target_range:
+                defaults[observable] = float(target_range['high'])
+                continue
             if target.get('qualitative_bounds'):
                 defaults[observable] = 1.0
         return defaults
@@ -409,11 +430,36 @@ class CalibrationFitter:
         return sum(valid) / len(valid) if valid else float('nan')
 
     @staticmethod
-    def _dealer_maker_volume_share(logger) -> float:
-        """Bank-dealer share of executed passive CLOB volume."""
+    def _dealer_maker_volume_share(logger, start=None, stop=None) -> float:
+        """Bank-dealer share of executed passive CLOB volume.
+
+        Both targets on this observable come from one table, and that table
+        reports two days: the period before the event and the event day. The
+        model's counterpart of that division is the repricing, so the episode
+        run supplies both figures, one from each side of it. Left whole-run,
+        the episode's own figure averaged the two together and a gate written
+        on the event day was answered mostly by the days before it.
+
+        The response window is not used here, although every other crisis
+        observable takes it. Those observables describe the dislocation and
+        the window is what the dislocation is; this one is a day aggregate in
+        the source and has no row in that table to match a hundred and fifty
+        seconds of it. It is reported on the response window as well, and the
+        two are far apart: over the dislocation the model's non-bank provider
+        supplies almost nothing, and over the day it supplies rather more than
+        the market did.
+        """
         by_owner = getattr(logger, 'clob_maker_volume', {}) or {}
-        total = sum(sum(float(v) for v in series) for series in by_owner.values())
-        dealer = sum(float(v) for v in by_owner.get('Market Maker', []))
+
+        def window(series):
+            values = list(series or ())
+            if start is None:
+                return values
+            return values[int(start):None if stop is None else int(stop)]
+
+        total = sum(sum(float(v) for v in window(series))
+                    for series in by_owner.values())
+        dealer = sum(float(v) for v in window(by_owner.get('Market Maker', [])))
         return dealer / total if total > 0.0 else float('nan')
 
     @staticmethod
@@ -509,9 +555,16 @@ class CalibrationFitter:
         dealer_withdrawal_peak_share = _finite_max(
             logger.mm_channel_shares.get('endogenous', [])
         )
+        dealer_full_withdrawal_ticks = _full_withdrawal_ticks(
+            logger.mm_channel_shares.get('endogenous', [])
+        )
         dealer_forced_pause_peak_share = _finite_max(
             logger.mm_channel_shares.get('forced_pause', [])
         )
+        dealer_maker_volume_share = self._dealer_maker_volume_share(logger)
+        dealer_maker_volume_share_whole_run = dealer_maker_volume_share
+        dealer_maker_volume_share_pre_event = float('nan')
+        dealer_maker_volume_share_response = float('nan')
         if shock_iter is not None and shock_iter < len(logger.iterations):
             qspr_baseline = baseline_level(list(logger.clob_qspr), shock_iter, lookback=50)
             qspr_dev = pct_deviation_series(list(logger.clob_qspr), qspr_baseline)
@@ -536,9 +589,24 @@ class CalibrationFitter:
                 logger.mm_channel_shares.get('endogenous', [])
                 [shock_iter:shock_iter + DEALER_RESPONSE_WINDOW]
             )
+            dealer_full_withdrawal_ticks = _full_withdrawal_ticks(
+                logger.mm_channel_shares.get('endogenous', [])
+                [shock_iter:shock_iter + DEALER_RESPONSE_WINDOW]
+            )
             dealer_forced_pause_peak_share = _finite_max(
                 logger.mm_channel_shares.get('forced_pause', [])
                 [shock_iter:shock_iter + DEALER_RESPONSE_WINDOW]
+            )
+            dealer_maker_volume_share = self._dealer_maker_volume_share(
+                logger, shock_iter, None
+            )
+            dealer_maker_volume_share_pre_event = (
+                self._dealer_maker_volume_share(logger, 0, shock_iter)
+            )
+            dealer_maker_volume_share_response = (
+                self._dealer_maker_volume_share(
+                    logger, shock_iter, shock_iter + DEALER_RESPONSE_WINDOW
+                )
             )
 
         return {
@@ -548,6 +616,11 @@ class CalibrationFitter:
             'dealer_forced_pause_share': dealer_forced_pause_share,
             'dealer_forced_pause_peak_share': dealer_forced_pause_peak_share,
             'dealer_withdrawal_peak_share': dealer_withdrawal_peak_share,
+            # How long the sector stands fully withdrawn, and not merely
+            # whether it ever does. A peak of one says the book emptied; only
+            # the duration says whether it emptied for a moment or stayed
+            # empty, and those are different markets.
+            'dealer_full_withdrawal_ticks': dealer_full_withdrawal_ticks,
             # The target statistic is estimated with live end-of-window orders
             # as right-censored exposures.  The completed-only median remains
             # beside it as an audit diagnostic so the correction is visible.
@@ -580,7 +653,18 @@ class CalibrationFitter:
                 'max_same_tick_scheduled_end_share'
             ],
             'book_two_sided_rate': self._two_sided_book_rate(logger),
-            'dealer_maker_volume_share': self._dealer_maker_volume_share(logger),
+            # From the repricing to the end of the run, which is the event
+            # day of the source. On a run with no shock it is the whole run.
+            'dealer_maker_volume_share': dealer_maker_volume_share,
+            # Up to the repricing, which is the source's pre-event period.
+            # The episode run carries both rows of that table, measured the
+            # same way on the same seed, and the calm target is read here.
+            'dealer_maker_volume_share_pre_event': dealer_maker_volume_share_pre_event,
+            # The two scopes that are not gated stay beside the two that are,
+            # so that the choice of window is legible in the artifact and not
+            # only in the code that wrote it.
+            'dealer_maker_volume_share_response_window': dealer_maker_volume_share_response,
+            'dealer_maker_volume_share_whole_run': dealer_maker_volume_share_whole_run,
             'executed_volume_per_second': self._executed_volume_per_second(logger),
             'quoted_spread_bps': _finite_median(list(logger.clob_qspr)),
             # Reported alongside the median because the two are not
@@ -643,12 +727,23 @@ class CalibrationFitter:
             gating = bool(target.get('gating', True))
             target_range = target.get('target_range') or {}
             target_value = target.get('target_value')
-            if 'low' in target_range and 'high' in target_range:
-                low = float(target_range['low'])
-                high = float(target_range['high'])
-                reference_value = min(max(float(realized), low), high) if math.isfinite(realized) else 0.5 * (low + high)
+            if 'low' in target_range or 'high' in target_range:
+                # A source may bound one side and say nothing about the other.
+                # Where a study measures a quantity the model reports on a
+                # different basis, a bound can be defensible in one direction
+                # while equality is not, and forcing a second bound onto it
+                # would assert a precision the source does not carry.
+                low = float(target_range.get('low', -math.inf))
+                high = float(target_range.get('high', math.inf))
+                if math.isfinite(realized):
+                    reference_value = min(max(float(realized), low), high)
+                elif math.isfinite(low) and math.isfinite(high):
+                    reference_value = 0.5 * (low + high)
+                else:
+                    reference_value = low if math.isfinite(low) else high
                 inside_range = math.isfinite(realized) and low <= float(realized) <= high
-                target_display = f'[{low}, {high}]'
+                target_display = (f'[{low}, {high}]' if math.isfinite(low) and math.isfinite(high)
+                                  else (f'>= {low}' if math.isfinite(low) else f'<= {high}'))
             elif target_value is not None:
                 reference_value = float(target_value)
                 inside_range = False
@@ -705,22 +800,25 @@ class CalibrationFitter:
             # alongside the stated one so nothing can look like it cleared a
             # range it did not, and a floor that cannot be negative is not
             # allowed to become negative.
-            if 'low' in target_range and 'high' in target_range and threshold > 0:
+            if ('low' in target_range or 'high' in target_range) and threshold > 0:
                 # A target may declare which side of its range the tolerance is
                 # allowed to relax. Where the lower bound carries the meaning of
                 # the target, as with a wedge that is expected to be tight but
                 # not zero, letting the tolerance reach through it deletes the
                 # claim the target was making.
                 applies = str(target.get('tolerance_applies', 'both')).lower()
-                eff_low = float(target_range['low'])
-                eff_high = float(target_range['high'])
-                if applies in ('both', 'lower'):
+                eff_low = float(target_range.get('low', -math.inf))
+                eff_high = float(target_range.get('high', math.inf))
+                if applies in ('both', 'lower') and math.isfinite(eff_low):
                     eff_low -= threshold
                     if float(target_range['low']) >= 0.0:
                         eff_low = max(0.0, eff_low)
-                if applies in ('both', 'upper'):
+                if applies in ('both', 'upper') and math.isfinite(eff_high):
                     eff_high += threshold
-                entry['effective_band'] = f'[{eff_low:g}, {eff_high:g}]'
+                entry['effective_band'] = (
+                    f'[{eff_low:g}, {eff_high:g}]'
+                    if math.isfinite(eff_low) and math.isfinite(eff_high)
+                    else (f'>= {eff_low:g}' if math.isfinite(eff_low) else f'<= {eff_high:g}'))
                 entry['tolerance_applies'] = applies
                 entry['inside_stated_range'] = bool(inside_range)
                 passed = inside_range or (eff_low <= float(realized) <= eff_high)
@@ -759,8 +857,30 @@ class CalibrationFitter:
         report['realized_metrics'] = metrics
         return report
 
+    @staticmethod
+    def _attach_crisis_multiples(suite_metrics: dict[str, dict[str, float]]) -> None:
+        """Express a stressed reading against the calm one beside it.
+
+        A source that reports a spread in both states pins their ratio more
+        firmly than either level, because the level carries the conversion
+        between whatever the study measured and what the model reports while
+        the ratio cancels it. Where a study gives both, the ratio is the
+        honest target and the level is a weaker one.
+        """
+        calm = suite_metrics.get('baseline_primary') or {}
+        base = calm.get('quoted_spread_mean_bps', float('nan'))
+        if not (isinstance(base, (int, float)) and math.isfinite(base) and base > 0.0):
+            return
+        for name, block in suite_metrics.items():
+            if name == 'baseline_primary' or not isinstance(block, dict):
+                continue
+            here = block.get('quoted_spread_mean_bps', float('nan'))
+            if isinstance(here, (int, float)) and math.isfinite(here):
+                block['crisis_spread_multiple'] = float(here) / float(base)
+
     def evaluate_scenario_suite(self, suite_metrics: dict[str, dict[str, float]],
                                 run_label: Optional[str] = None) -> dict:
+        self._attach_crisis_multiples(suite_metrics)
         report_targets = []
         evaluated_targets = 0
         passed_targets = 0
