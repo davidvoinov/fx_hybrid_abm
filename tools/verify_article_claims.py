@@ -528,8 +528,12 @@ def pair_provenance():
         # The stored provider chain is the primary pair's. This branch runs a
         # different episode, so its own run of that chain measures a different
         # market and the two can never agree.
+        # The manifest names the pair inside a longer description, so the
+        # test is containment. Equality read every branch as foreign,
+        # including the one the stored reports actually belong to, and gave
+        # the right verdict there for the wrong reason.
         'reports_are_from_another_pair': bool(
-            not current and pair is not None and pair != 'EUR/USD'),
+            not current and pair is not None and 'EUR/USD' not in pair),
     }
 
 
