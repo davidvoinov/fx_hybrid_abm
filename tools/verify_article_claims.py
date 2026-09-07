@@ -244,6 +244,47 @@ def _branch_claims():
     return rows
 
 
+def _earnings_claims():
+    """Every column of the earnings table, against the one run behind it.
+
+    The table used to be assembled by hand from two measurers and two runs,
+    and its percentages divided a median result by a median capital where the
+    prose beside it took the median of the per-seed ratio. Nothing in the
+    manuscript recorded which of the two a reader was looking at. The table is
+    now produced by one tool from one artifact, and this is the check that the
+    manuscript still carries what that artifact says.
+
+    Empty when the artifact is absent or was produced by a different model,
+    the same way every other stored measurement enters here.
+    """
+    import json
+
+    from tools.robustness import earnings_table as E
+    path = os.path.join(ROOT, 'output', 'resilience', 'earnings_table.json')
+    if not os.path.exists(path):
+        return []
+    with open(path, encoding='utf-8') as handle:
+        payload = json.load(handle)
+    if payload.get('measurement_signature') != E.measurement():
+        return []
+    out = []
+    for arm, row in (payload.get('summary') or {}).items():
+        name = row.get('label', arm)
+        for field, places, scale in (
+            ('calm_result', 3, 1.0),
+            ('crisis_result', 1, 1.0),
+            ('calm_return', 5, 100.0),
+            ('crisis_return', 4, 100.0),
+            ('calm_windows_per_crisis', 0, 1.0),
+        ):
+            value = row.get(field)
+            if value is None:
+                continue
+            out.append((f'{name} {field.replace("_", " ")}',
+                        scale * float(value), places, 'tab:earnings'))
+    return out
+
+
 def claims():
     """Label, expected number, decimals, and where it has to appear.
 
@@ -310,6 +351,7 @@ def claims():
 
     out.extend(_calibration_claims())
     out.extend(_migration_claims())
+    out.extend(_earnings_claims())
     return out
 
 
@@ -537,6 +579,72 @@ def pair_provenance():
     }
 
 
+# The rows of a table and the body of an equation are not prose. The float
+# around them is only a wrapper, and the caption inside it is read like any
+# other sentence, so table and figure are not skipped here.
+SKIP_ENVIRONMENTS = ('equation', 'align', 'tabular', 'tabular*',
+                     'thebibliography')
+# Commands whose braces hold a name, a path or a key and not a sentence, so a
+# colon inside them is markup. A colon in \ref{sec:h4} is not prose and neither
+# is the one in a JEL classification or an electronic address.
+MARKUP_COMMANDS = (
+    'label', 'ref', 'eqref', 'cite', 'citet', 'citep', 'cortext', 'nonumnote',
+    'fntext', 'tnotetext', 'includegraphics', 'url', 'href', 'newcommand',
+    'renewcommand', 'usepackage', 'bibliography', 'bibliographystyle',
+    'graphicspath', 'title', 'author', 'address', 'ead', 'affiliation',
+    'DeclareMathOperator', 'acro',
+)
+
+
+def prose(text):
+    """The manuscript with markup, mathematics and tables taken out.
+
+    A check written against the raw source reported the colons in \ref and in
+    \cs_set:Npn and missed the ones in sentences, and a check written against
+    a naive strip reported none at all while seven semicolons stood in the
+    text. What is left here is what a reader reads.
+    """
+    body = text.split('\\begin{document}', 1)[-1]
+    kept, env = [], None
+    for raw in body.split('\n'):
+        line = re.sub(r'(?<!\\)%.*$', '', raw)
+        found = re.search(r'\\begin\{([^}]+)\}', line)
+        if found and found.group(1) in SKIP_ENVIRONMENTS:
+            env = found.group(1)
+        if env is not None:
+            if re.search(r'\\end\{' + re.escape(env) + r'\}', line):
+                env = None
+            continue
+        kept.append(line)
+    out = '\n'.join(kept)
+    out = re.sub(r'\\\[.*?\\\]', ' MATH ', out, flags=re.S)
+    out = re.sub(r'\\\(.*?\\\)', ' MATH ', out, flags=re.S)
+    out = re.sub(r'\$[^$]*\$', ' MATH ', out)
+    for name in MARKUP_COMMANDS:
+        out = re.sub(r'\\' + name
+                     + r'\*?(\[[^\]]*\])?\{[^{}]*(\{[^{}]*\}[^{}]*)*\}',
+                     ' X ', out)
+    out = re.sub(r'\\[A-Za-z]+\*?', ' ', out)
+    out = re.sub(r'[{}]', ' ', out)
+    return out
+
+
+def punctuation():
+    """Semicolons and colons in the prose, which the house rule forbids.
+
+    Every one of them can be written as a full stop or a conjunction, and the
+    rule is easier to hold to than to argue about case by case.
+    """
+    if not os.path.exists(ARTICLE):
+        return {}
+    text = prose(open(ARTICLE, encoding='utf-8').read())
+    found = {}
+    for mark in (';', ':'):
+        found[mark] = [' '.join(text[max(0, m.start() - 80):m.start() + 30].split())
+                       for m in re.finditer(re.escape(mark), text)]
+    return found
+
+
 def build_state():
     """Whether the typeset manuscript exists and is newer than its source."""
     pdf = ARTICLE.replace('.tex', '.pdf')
@@ -616,6 +724,16 @@ def main():
         print(f'  {k:9s} report was produced under {sigs[k]}  {state}')
         if not ok and not withdrawn:
             bad.append((f'{k} report signature', str(sigs[k]), 'report'))
+
+    print()
+    marks = punctuation()
+    total = sum(len(v) for v in marks.values())
+    print(f'semicolons and colons in the prose  {total}')
+    for mark, hits in marks.items():
+        for hit in hits[:6]:
+            print(f'  {mark}  ...{hit}')
+        if hits:
+            bad.append((f'{mark!r} in the prose', '0', 'the manuscript'))
 
     print()
     build = build_state()
