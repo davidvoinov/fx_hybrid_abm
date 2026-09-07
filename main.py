@@ -1074,7 +1074,7 @@ def build_parser(default_venue_choice_rule: str = "liquidity_aware") -> argparse
                    help="Std of cost estimation noise in bps (default: 1.5)")
     g.add_argument("--routing-cost-scale", type=float, default=4.0,
                    dest="routing_cost_scale_bps",
-                   help="Cost-gap scale of liquidity-aware routing in bps (design parameter; default: 4)")
+                   help="Cost-gap scale of liquidity-aware routing in bps (design parameter; default: 1)")
     g.add_argument("--routing-prior-mix-cap", type=float, default=0.18,
                    dest="routing_prior_mix_cap",
                    help="Maximum weight on the AMM routing prior (design parameter; default: 0.18)")
