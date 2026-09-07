@@ -597,7 +597,7 @@ MARKUP_COMMANDS = (
 
 
 def prose(text):
-    """The manuscript with markup, mathematics and tables taken out.
+    r"""The manuscript with markup, mathematics and tables taken out.
 
     A check written against the raw source reported the colons in \ref and in
     \cs_set:Npn and missed the ones in sentences, and a check written against
