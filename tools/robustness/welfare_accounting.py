@@ -629,6 +629,24 @@ def withdrawal_window(sim, shock: int,
     return sum(finite) / len(finite) if finite else 0.0
 
 
+def _staged_window(sim, window: tuple[int, int]) -> Optional[dict]:
+    """What the staging captured at the opening of this window.
+
+    ``None`` when the run staged nothing at all, which is how a simulation
+    built by hand in a test reaches these readers. A run that staged some
+    windows and not the one asked for is a different case and raises, since
+    answering it from another window would mark a facility at the wrong
+    instant and report the number as if it were the right one.
+    """
+    staged = getattr(sim, 'facility_windows', None)
+    if staged is None:
+        return getattr(sim, 'facility_window', None)
+    key = (int(window[0]), int(window[1]))
+    if key not in staged:
+        raise KeyError(f'the run staged no facility reading for window {key}')
+    return staged[key]
+
+
 def lp_wallet_window(sim, shock: int,
                      window: tuple[int, int] = CRISIS) -> Optional[float]:
     """Value of the provider wallets at the opening of the window.
@@ -636,7 +654,7 @@ def lp_wallet_window(sim, shock: int,
     Read at the same instant as the reserves, and in the same currency, so the
     two can be added into one capital base.
     """
-    captured = getattr(sim, 'facility_window', None)
+    captured = _staged_window(sim, window)
     if captured is not None:
         return captured.get('opening_wallets')
     providers = [lp for pop in getattr(sim, 'lp_providers', []) or []
@@ -653,7 +671,7 @@ def arm_window(sim, shock: int,
     lp = lp_window(sim, shock, window)
     opening, lvr, fees = lp if lp is not None else (None, None, None)
     wallets = lp_wallet_window(sim, shock, window) if lp is not None else None
-    captured = getattr(sim, 'facility_window', None) or {}
+    captured = _staged_window(sim, window) or {}
     book_open = captured.get('opening_capital')
     book_result = captured.get('operating_result')
     sponsor, rate, rebate = sponsor_window(sim, shock, window)
@@ -680,7 +698,8 @@ def arm_window(sim, shock: int,
 def run(seed: int, arm, lp_model: str = 'endogenous',
         subsidy_rate: float = 0.0, loss_rebate_fraction: float = 0.0,
         response_scale: Optional[float] = None,
-        outside_option: Optional[float] = None):
+        outside_option: Optional[float] = None,
+        windows: tuple[tuple[int, int], ...] = (CRISIS,)):
     """One arm of the comparison on one seed.
 
     ``arm`` names the facility, so that the welfare account carries the same
@@ -727,51 +746,69 @@ def run(seed: int, arm, lp_model: str = 'endogenous',
     providers = [lp for pop in getattr(sim, 'lp_providers', []) or []
                  for lp in getattr(pop, 'providers', [])]
 
+    def _fair():
+        series = getattr(sim.logger, 'fair_price_series', []) or []
+        return float(series[-1]) if series else float('nan')
+
     # Staged, because both the wallets a provider holds and the position a
     # quoter carries are attributes of the agent at the current tick and not
     # series. Read after a run taken in one step they report the end of the
     # year: the wallets came back four times their size at the opening of the
     # window, and the capital cost with them.
-    opening_tick = shock + CRISIS[0]
-    span = CRISIS[1] - CRISIS[0]
-    sim.simulate(opening_tick, silent=True)
+    #
+    # Windows are staged in one pass and in order. A calm window and a crisis
+    # window read off the same path are two states of one market, which is
+    # what setting them beside each other asserts. Read off two runs they were
+    # two markets, and the order book arms had no calm reading at all, since
+    # the staging here is the only place their equity is marked.
+    captured = {}
+    tick = 0
+    for window in sorted(windows, key=lambda w: int(w[0])):
+        opening_tick = max(0, shock + int(window[0]))
+        span = max(0, int(window[1]) - int(window[0]))
+        if opening_tick > tick:
+            sim.simulate(opening_tick - tick, silent=True)
+            tick = opening_tick
+        elif opening_tick < tick:
+            raise ValueError('windows must not overlap and must be ordered')
+        opening_price = _fair()
+        opening_wallets = sum(float(lp.wallet_base) * opening_price
+                              + float(lp.wallet_cash) for lp in providers)
+        opening_capital = (float(facility.cash)
+                           + float(facility.assets) * opening_price
+                           if facility is not None else None)
 
-    def _fair():
-        series = getattr(sim.logger, 'fair_price_series', []) or []
-        return float(series[-1]) if series else float('nan')
+        # The quoter's result is accumulated the way the pool's is, period by
+        # period against a hold and rebalance benchmark, so that the two arms
+        # are measured on one construction. Marked instead at the price the
+        # market opened the year on, a position carried through a one per cent
+        # decline showed no loss at all and both order book arms reported a
+        # profit.
+        result = 0.0
+        if facility is not None:
+            cash, assets = float(facility.cash), float(facility.assets)
+            for _ in range(span):
+                sim.simulate(1, silent=True)
+                price = _fair()
+                new_cash = float(facility.cash)
+                new_assets = float(facility.assets)
+                if math.isfinite(price):
+                    result += (new_cash - cash) + (new_assets - assets) * price
+                cash, assets = new_cash, new_assets
+        else:
+            sim.simulate(span, silent=True)
+        tick += span
+        captured[(int(window[0]), int(window[1]))] = {
+            'opening_capital': opening_capital,
+            'operating_result': result if facility is not None else None,
+            'opening_wallets': opening_wallets if providers else 0.0,
+        }
 
-    opening_price = _fair()
-    opening_wallets = sum(float(lp.wallet_base) * opening_price
-                          + float(lp.wallet_cash) for lp in providers)
-    opening_capital = (float(facility.cash) + float(facility.assets) * opening_price
-                       if facility is not None else None)
-
-    # The quoter's result is accumulated the way the pool's is, period by
-    # period against a hold and rebalance benchmark, so that the two arms are
-    # measured on one construction. Marked instead at the price the market
-    # opened the year on, a position carried through a one per cent decline
-    # showed no loss at all and both order book arms reported a profit.
-    result = 0.0
-    if facility is not None:
-        cash, assets = float(facility.cash), float(facility.assets)
-        for _ in range(span):
-            sim.simulate(1, silent=True)
-            price = _fair()
-            new_cash, new_assets = float(facility.cash), float(facility.assets)
-            if math.isfinite(price):
-                result += (new_cash - cash) + (new_assets - assets) * price
-            cash, assets = new_cash, new_assets
-    else:
-        sim.simulate(span, silent=True)
-
-    remaining = int(args.n_iter) - opening_tick - span
+    remaining = int(args.n_iter) - tick
     if remaining > 0:
         sim.simulate(remaining, silent=True)
-    sim.facility_window = {
-        'opening_capital': opening_capital,
-        'operating_result': result if facility is not None else None,
-        'opening_wallets': opening_wallets if providers else 0.0,
-    }
+    sim.facility_windows = captured
+    sim.facility_window = captured.get((int(CRISIS[0]), int(CRISIS[1])))
     return sim, shock
 
 
@@ -871,6 +908,8 @@ def welfare_measurement_signature():
             model_signature(ROOT),
             functions=(
                 _common_reference_cost_bps,
+                _staged_window,
+                run,
                 execution_window,
                 execution_composition_window,
                 lp_window,
