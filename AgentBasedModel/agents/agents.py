@@ -3274,8 +3274,15 @@ class MarketMaker(Trader):
             # is calibrated per pair. At zero the term is absent and the
             # model is the one that produced the other two branches.
             if self.replacement_gain > 0.0:
+                # Applied to the depth the dealer would actually show, and
+                # not to the running total above, which the volatility,
+                # funding and inventory terms can drive below zero. Scaling a
+                # negative running total by a positive response made the
+                # dealer supply less the more of the sector had gone, and the
+                # floor then hid it: every quote came out at d_min whatever
+                # the response was set to.
                 gone = 1.0 - max(0.0, min(1.0, liquidity_factor))
-                d *= 1.0 + self.replacement_gain * gone
+                return max(d, self.d_min) * (1.0 + self.replacement_gain * gone)
         return max(d, self.d_min)
 
     def set_inventory_reference(self, reference: float) -> None:
