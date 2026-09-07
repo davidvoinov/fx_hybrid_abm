@@ -2872,6 +2872,7 @@ class MarketMaker(Trader):
                  d_min: float = 3.0, n_levels: int = 5,
                  level_step_ticks: float = 2.0,
                  inv_skew_bps: float = 0.3,
+                 replacement_gain: float = 0.0,
                  client_flow_intensity: float = 0.0,
                  client_flow_persistence: float = 0.85,
                  venue_interaction_mode: str = 'competition',
@@ -2967,6 +2968,9 @@ class MarketMaker(Trader):
         self.n_levels = max(1, n_levels)
         self.level_step_ticks = max(0.5, float(level_step_ticks))
         self.inv_skew_bps = inv_skew_bps  # inventory skew coefficient
+        # How much of the depth a departing provider leaves behind this
+        # dealer picks up. Zero reproduces the model without the channel.
+        self.replacement_gain = max(0.0, float(replacement_gain))
         self.venue_interaction_mode = venue_interaction_mode
         self.amm_spread_impact_bps = max(0.0, amm_spread_impact_bps)
         self.amm_depth_impact = max(0.0, amm_depth_impact)
@@ -3251,7 +3255,27 @@ class MarketMaker(Trader):
         d -= self.d3 * effective_ofi
         d -= inventory_penalty
         if not self.state_independent_quote:
-            d *= venue_state['liquidity_factor']
+            liquidity_factor = venue_state['liquidity_factor']
+            d *= liquidity_factor
+            # A provider that stays supplies more of the flow, because there
+            # is less competition for it. The episode study reports this on
+            # both franc pairs and in opposite places: in EUR/CHF the human
+            # traders inside the banks took over from the algorithms inside
+            # them, lifting their share of provided volume from 38.8 to 68.4
+            # per cent while the bank algorithms fell from 54.1 to 25.1; in
+            # USD/CHF the professional trading firms stepped back from 69.1
+            # to 60.3 and the banks went from 19.2 to 34.5. Without this term
+            # a dealer can only quote or leave, so a sector small enough to
+            # supply a fifth of calm volume can never supply a third of the
+            # volume in a dislocation, whatever anyone else does.
+            #
+            # The response is proportional to the capacity that has gone,
+            # which the liquidity factor already measures, and the constant
+            # is calibrated per pair. At zero the term is absent and the
+            # model is the one that produced the other two branches.
+            if self.replacement_gain > 0.0:
+                gone = 1.0 - max(0.0, min(1.0, liquidity_factor))
+                d *= 1.0 + self.replacement_gain * gone
         return max(d, self.d_min)
 
     def set_inventory_reference(self, reference: float) -> None:

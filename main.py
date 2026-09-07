@@ -1280,6 +1280,12 @@ def build_parser(default_venue_choice_rule: str = "liquidity_aware") -> argparse
     g.add_argument("--mm-stale-touch-ratio", type=float,
                    default=float(calibrated_default('mm_stale_touch_ratio', 0.06)),
                    help="Fraction of the spread the dealer would quote now, inside which a resting quote is withdrawn instead of being left to become the best price in the market")
+    g.add_argument("--mm-replacement-gain", type=float,
+                   default=float(calibrated_default('mm_replacement_gain', 0.0)),
+                   dest="mm_replacement_gain",
+                   help="How much of the depth a departing provider leaves "
+                        "behind the dealers that stay pick up. Zero is the "
+                        "model without the channel.")
     g.add_argument("--mm-inv-skew-bps", type=float,
                    default=float(calibrated_default('mm_inv_skew_bps', 0.3)),
                    help="How far the dealer shifts its quoted mid against its own position, in bps per unit of inventory. It sets how fast inventory mean reverts, and the anchor is the median half life of an FX dealer position")
@@ -1550,6 +1556,7 @@ def build_sim(args: argparse.Namespace) -> Simulator:
         mm_n_levels=args.mm_n_levels,
         mm_level_step_ticks=args.mm_level_step_ticks,
         mm_inv_skew_bps=args.mm_inv_skew_bps,
+        mm_replacement_gain=args.mm_replacement_gain,
         mm_revenue_horizon=args.mm_revenue_horizon,
         mm_stale_touch_ratio=args.mm_stale_touch_ratio,
         fast_lp_base_spread_bps=args.fast_lp_base_spread_bps,
