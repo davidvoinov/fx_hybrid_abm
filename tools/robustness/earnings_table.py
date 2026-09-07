@@ -77,15 +77,7 @@ def measure(seed: int, arm: str) -> dict:
     sim, shock = run(seed, arm, windows=(CALM, CRISIS))
     calm = _window_row(sim, shock, CALM)
     crisis = _window_row(sim, shock, CRISIS)
-    # The number of calm windows one crisis window consumes. It is formed per
-    # seed, so a seed whose calm earnings are nil contributes nothing to it
-    # rather than contributing an infinity that a median would then hide.
-    windows = None
-    if (calm['return'] is not None and crisis['return'] is not None
-            and calm['return'] > 0.0 and crisis['return'] < 0.0):
-        windows = -crisis['return'] / calm['return']
-    return {'arm': arm, 'seed': int(seed), 'calm': calm, 'crisis': crisis,
-            'calm_windows_per_crisis': windows}
+    return {'arm': arm, 'seed': int(seed), 'calm': calm, 'crisis': crisis}
 
 
 def _median(values):
@@ -103,15 +95,30 @@ def summarise(rows: list[dict]) -> dict:
         earners = [r for r in mine
                    if r['calm']['return'] is not None
                    and r['calm']['return'] > 0.0]
+        calm_return = _median([r['calm']['return'] for r in mine])
+        crisis_return = _median([r['crisis']['return'] for r in mine])
+        # How many calm windows one crisis window consumes, formed from the
+        # two returns printed beside it so the row is consistent with itself.
+        #
+        # Taken instead as a median of the per-seed ratio it was a number
+        # conditioned on the seeds that happened to earn, and on the primary
+        # pair those were three of twenty four. The column then read as if the
+        # arm covered itself in some number of calm windows while the median
+        # seed earned nothing at all and no number of them covered anything.
+        # It is absent exactly when the median seed earns nothing, which is
+        # the statement the table means to make.
+        windows = None
+        if (calm_return is not None and crisis_return is not None
+                and calm_return > 0.0 and crisis_return < 0.0):
+            windows = -crisis_return / calm_return
         out[arm] = {
             'label': LABELS[arm],
             'seeds': len(mine),
             'calm_result': _median([r['calm']['result'] for r in mine]),
             'crisis_result': _median([r['crisis']['result'] for r in mine]),
-            'calm_return': _median([r['calm']['return'] for r in mine]),
-            'crisis_return': _median([r['crisis']['return'] for r in mine]),
-            'calm_windows_per_crisis': _median(
-                [r['calm_windows_per_crisis'] for r in mine]),
+            'calm_return': calm_return,
+            'crisis_return': crisis_return,
+            'calm_windows_per_crisis': windows,
             'seeds_earning_in_calm': len(earners),
         }
     return out
