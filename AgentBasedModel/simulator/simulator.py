@@ -218,7 +218,15 @@ class Simulator:
                 trader.apply_financing_charge(reference_price, funding_rate)
                 trader.enforce_balance_sheet_discipline(reference_price)
             except Exception:
-                pass
+                # Swallowed so that one firm cannot end a run, but counted so
+                # that swallowing it is not the same as nothing having
+                # happened. A financing charge that never lands leaves a
+                # balance sheet uncontrolled, and a silent pass made that
+                # indistinguishable from a period in which every charge
+                # landed. Nothing reads the counter to change behaviour; it
+                # exists so the condition is visible in an audit.
+                self.balance_sheet_control_failures = getattr(
+                    self, 'balance_sheet_control_failures', 0) + 1
 
     @property
     def multi_venue(self) -> bool:
@@ -504,10 +512,18 @@ class Simulator:
             signed_move = self.shock_pct
         return 'sell' if signed_move < 0 else 'buy'
 
+    def _drain_sweep_flow(self) -> list:
+        """The sweep fills of this period, handed to the flow accounting once."""
+        taken = getattr(self, '_sweep_flow', None) or []
+        self._sweep_flow = []
+        return list(taken)
+
     def _execute_order_flow_sweep(self, side: str, quantity: float):
         from AgentBasedModel.agents.agents import Trader
         from AgentBasedModel.utils.orders import Order
 
+        if getattr(self, '_sweep_flow', None) is None:
+            self._sweep_flow = []
         if self.exchange is None or quantity <= 0:
             return
         if side == 'buy' and not self.exchange.order_book['ask']:
@@ -516,13 +532,32 @@ class Simulator:
             return
 
         pseudo_trader = Trader(self.exchange, cash=1e9, assets=int(1e6))
+        requested = round(quantity)
         if side == 'buy':
             price = self.exchange.order_book['ask'].last.price
-            order = Order(price, round(quantity), 'bid', pseudo_trader)
+            order = Order(price, requested, 'bid', pseudo_trader)
         else:
             price = self.exchange.order_book['bid'].last.price
-            order = Order(price, round(quantity), 'ask', pseudo_trader)
-        self.exchange.market_order(order)
+            order = Order(price, requested, 'ask', pseudo_trader)
+        remainder = self.exchange.market_order(order)
+
+        # What the sweep actually took, recorded in the same shape a routed
+        # customer records a fill. Without this the sweep removed liquidity
+        # from the book and generated no flow: observe_order_flow is fed from
+        # period_trades, which is assembled from the trader loop alone, so a
+        # shock delivered as a sweep moved the book but not the signed flow
+        # that dealer constraints and pool liquidity respond to. The order
+        # flow limb of an episode was therefore half connected, and raising
+        # its size did nothing to the state variables it was meant to drive.
+        filled = max(0.0, float(requested)
+                     - float(getattr(remainder, 'qty', 0.0) or 0.0))
+        if filled > 0.0:
+            self._sweep_flow.append(dict(
+                trader_id=None, trader_type='order_flow_sweep',
+                execution_source='order_flow_sweep', venue='clob',
+                side='buy' if side == 'buy' else 'sell',
+                quantity=filled, requested_quantity=float(requested),
+            ))
 
     def _apply_realism_shock(self):
         config = self.realism_shock_config or {}
@@ -857,6 +892,9 @@ class Simulator:
                             lp.on_trade(db, da)
 
             if self.env is not None:
+                # The sweep runs in the shock phase, before this loop, so its
+                # fills are held until the flow accounting of the same period.
+                period_trades.extend(self._drain_sweep_flow())
                 self.env.observe_order_flow(period_trades)
                 # Every arm, including the one carrying no facility, so that a
                 # paired comparison differs in the facility and not in whether

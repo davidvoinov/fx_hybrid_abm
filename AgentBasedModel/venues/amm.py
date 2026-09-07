@@ -218,7 +218,12 @@ class CPMMPool:
 
         self.y += quote['delta_y'] * (1.0 - self.fee)
         self.x -= Q
-        # k is invariant by construction
+        # k is invariant by construction, and the asymmetry with the sell path
+        # is the asymmetry of where the fee is taken. Here it is withheld from
+        # the quote reserve and is already carried in delta_y as a gross
+        # amount, so y += delta_y * (1 - fee) lands exactly on k / x_new. On
+        # the sell side the fee is taken out of the base leg and never enters
+        # delta_y, so there the invariant does move and is recomputed.
         return self._filled(quote, Q)
 
     def execute_sell(self, Q: float) -> dict:
