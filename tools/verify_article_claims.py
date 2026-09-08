@@ -592,7 +592,7 @@ MARKUP_COMMANDS = (
     'fntext', 'tnotetext', 'includegraphics', 'url', 'href', 'newcommand',
     'renewcommand', 'usepackage', 'bibliography', 'bibliographystyle',
     'graphicspath', 'title', 'author', 'address', 'ead', 'affiliation',
-    'DeclareMathOperator', 'acro',
+    'DeclareMathOperator', 'acro', 'credit',
 )
 
 
@@ -624,6 +624,10 @@ def prose(text):
         out = re.sub(r'\\' + name
                      + r'\*?(\[[^\]]*\])?\{[^{}]*(\{[^{}]*\}[^{}]*)*\}',
                      ' X ', out)
+    # Environment names before the general strip, which would otherwise leave
+    # the name behind in braces and report the ``center`` of \begin{center}
+    # as an American spelling.
+    out = re.sub(r'\\(?:begin|end)\{[^}]*\}', ' ', out)
     out = re.sub(r'\\[A-Za-z]+\*?', ' ', out)
     out = re.sub(r'[{}]', ' ', out)
     return out
