@@ -111,8 +111,12 @@ def _interval_bars(ax, rows, xlabel, colour_by_sign=True):
     ax.axvline(0.0, color='black', linewidth=0.8)
     ax.set_yticks(positions)
     ax.set_yticklabels([name for name, _, _, _ in rows])
-    ax.invert_yaxis()
-    ax.set_xlabel(xlabel)
+    # Set the limits rather than toggling the axis. invert_yaxis flips each
+    # time it is called, so on a figure whose panels share one y-axis the
+    # second panel undid the first and every row came out bottom up.
+    ax.set_ylim(len(rows) - 0.5, -0.5)
+    if xlabel:
+        ax.set_xlabel(xlabel)
     _frame(ax)
 
 
@@ -165,23 +169,28 @@ def fig_decomposition(data='output/facility_arms.json') -> str:
 
 # ── 3. the two cost measures ─────────────────────────────────────────────
 def fig_cost_measures(data='output/facility_arms.json') -> str:
+    # A panel each, and not two bars on one axis. The quoted measure reaches
+    # thirty eight basis points where the realised one lives between two and
+    # four, so a shared scale sized by the first compressed the second into
+    # stubs a reader cannot order. The reversal this section reports is an
+    # ordering inside the realised measure, so the figure that carried both
+    # on one axis hid the very thing it was drawn to show. The intervals
+    # come with them, since the reversal is small and its width matters.
     payload = _load(data)
     arms = [a for a in ARM_LABEL if a in payload['arms'] and a != 'none']
-    realised = [payload['arms'][a]['delta_cost']['mean'] for a in arms]
-    quoted = [payload['arms'][a]['delta_quoted_cost']['mean'] for a in arms]
-    positions = np.arange(len(arms))
-    fig, ax = plt.subplots(figsize=WIDE)
-    ax.barh(positions - 0.19, realised, height=0.36, color=POOL,
-            alpha=0.9, label='paid on the trades that happened')
-    ax.barh(positions + 0.19, quoted, height=0.36, color=POOL_FROZEN,
-            alpha=0.9, label='quoted at one size, every period')
-    ax.axvline(0.0, color='black', linewidth=0.8)
-    ax.set_yticks(positions)
-    ax.set_yticklabels([ARM_LABEL[a] for a in arms])
-    ax.invert_yaxis()
-    ax.set_xlabel('change against the dealer only control, basis points')
-    ax.legend(frameon=False, fontsize=8, loc='lower left')
-    _frame(ax)
+    fig, axes = plt.subplots(1, 2, figsize=(6.4, 2.9), sharey=True)
+    for ax, key, title in (
+            (axes[0], 'delta_cost', 'Paid on the trades that happened'),
+            (axes[1], 'delta_quoted_cost', 'Quoted at one size, every period')):
+        rows = [(ARM_LABEL[a], payload['arms'][a][key]['mean'],
+                 payload['arms'][a][key]['ci'][0],
+                 payload['arms'][a][key]['ci'][1]) for a in arms]
+        _interval_bars(ax, rows, '')
+        ax.set_title(title, loc='left', fontsize=9)
+    axes[1].tick_params(labelleft=False)
+    fig.supxlabel('change against the dealer only control, basis points',
+                  fontsize=9)
+    fig.tight_layout()
     return _save(fig, 'cost_measures.pdf')
 
 
