@@ -448,12 +448,25 @@ REALISM_PRESETS = {
         # 150, and on 636 of 640 such periods across eight seeds no passive
         # volume executed at all. The book was not thin then, it was dark,
         # and the record describes an absence of bids lasting seconds and
-        # not half the window. At 4.0 the sector never empties, while
-        # withdrawal remains the dominant mechanism: 68 per cent of dealers
-        # are withdrawn at the peak. The liquidity shock does not drive
-        # this at all, moving the dark count from 80 to 78 across its whole
-        # range, so the threshold is what governs it.
-        mm_withdraw_threshold=4.0,
+        # not half the window.
+        #
+        # It then stood at 4.0 until the order flow sweep was connected to
+        # the flow accounting. The sweep had been removing liquidity while
+        # generating no signed flow, so the dealer constraints never saw the
+        # limb of the episode that drives them. Connecting it strengthened
+        # the withdrawal it feeds, from 68 per cent of dealers at the peak
+        # to 80, and one seed of the three hundred then evacuated the whole
+        # sector, which the acceptance check forbids and which leaves the
+        # capacity channel of BIS WP 1138 nothing to propagate.
+        #
+        # The size of the shock does not govern this. Swept from 150 to 190
+        # the peak share withdrawn sits at 0.80 throughout and the crisis
+        # multiple moves between 8.68 and 9.02, so the shock cannot be what
+        # is retuned. The threshold is the only lever that acts on it, and
+        # 4.15 is the smallest step that closes the check while withdrawal
+        # remains the dominant mechanism at 60 per cent of dealers gone at
+        # the peak.
+        mm_withdraw_threshold=4.15,
         mm_reentry_threshold=0.4,
         mm_withdraw_confirmation_ticks=2,
     ),

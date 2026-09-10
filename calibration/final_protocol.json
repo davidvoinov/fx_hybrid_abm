@@ -1,6 +1,6 @@
 {
-  "protocol_version": "eurchf-branch-v4",
-  "frozen_at": "2026-09-07",
+  "protocol_version": "eurchf-branch-v6",
+  "frozen_at": "2026-09-09",
   "scope": "Computational closure of the EUR/CHF branch: the EBS book calibration for the pair and the episode of 15 January 2015. Manuscript prose is outside this protocol.",
   "revision_history": [
     {
@@ -173,20 +173,43 @@
         "The response multiplies the depth the dealer would actually show and not the running total behind it, which the volatility, funding and inventory terms can drive below zero. Applied to the running total it made a dealer supply less the more of the sector had gone, and the floor under depth hid it: every quote came out at the minimum whatever the response was.",
         "Every frozen digest moves because the simulation source moved. The seeds, the targets and the calibration of this pair do not move, so the panel this protocol commits to is the same measurement it was."
       ]
+    },
+    {
+      "version": "eurchf-branch-v5",
+      "frozen_at": "2026-09-07",
+      "result": "the order flow limb of an episode is connected to the flow accounting",
+      "reason": "The sweep that delivers an order flow shock executed through a pseudo trader straight against the book and never entered period_trades, which is what feeds observe_order_flow. The shock therefore removed liquidity and generated no signed flow, so the dealer constraints and the pool liquidity that respond to flow never saw it, and raising the size of the shock did nothing to the state it was meant to drive. Four of the five calm gates are measured on a scenario with no shock and do not move; the episode gates do.",
+      "changes": [
+        "The sweep records what it filled in the shape a routed customer records a fill, and those fills join period_trades of the same period before the flow accounting runs.",
+        "A financing charge or balance sheet check that raises is still swallowed so that one firm cannot end a run, but it is counted now, so a period in which nothing landed is distinguishable from one in which everything did.",
+        "The help text of routing_cost_scale declared a default of four against an actual of one.",
+        "The comment on the constant product buy path now states why the invariant is preserved there and moves on the sell path, which is where the fee is taken from the base leg. An audit read the asymmetry as a defect; it is not, and the arithmetic is unchanged."
+      ]
+    },
+    {
+      "version": "eurchf-branch-v6",
+      "frozen_at": "2026-09-09",
+      "result": "the withdrawal threshold is recalibrated to the episode the connected sweep produces",
+      "reason": "Connecting the order flow sweep to the flow accounting under v5 strengthened the limb of the episode that drives the dealer constraint. The peak share of dealers withdrawn rose from 68 per cent to 80 and one seed of the three hundred evacuated the whole sector, which the no_full_dealer_evacuation check forbids and which leaves the capacity channel nothing to propagate. The threshold had been fitted against the weaker transmission and is refitted against the connected one.",
+      "changes": [
+        "mm_withdraw_threshold on the episode preset moves from 4.0 to 4.15, the smallest step that closes the evacuation check while withdrawal remains the dominant mechanism at 60 per cent of dealers gone at the peak.",
+        "The size of the order flow shock was swept from 150 to 190 and is not the lever. The peak share withdrawn sits at 0.80 across that whole range and the crisis multiple moves only between 8.68 and 9.02, so the shock cannot be what is retuned and the threshold is what governs the outcome.",
+        "Every frozen digest moves because the simulation source moved. The seeds, the targets and the episode of this pair do not move."
+      ]
     }
   ],
   "phases": {
     "development": {
       "seed_start": 42,
       "seed_count": 300,
-      "status": "pending_run_under_eurchf_branch_v4",
-      "output": "output/final/book_development_eurchf_v4_300.json"
+      "status": "pending_run_under_eurchf_branch_v6",
+      "output": "output/final/book_development_eurchf_v6_300.json"
     },
     "holdout": {
       "seed_start": 20042,
       "seed_count": 300,
       "status": "untouched_single_use_holdout",
-      "output": "output/final/book_holdout_eurchf_v4_300.json"
+      "output": "output/final/book_holdout_eurchf_v6_300.json"
     }
   },
   "thresholds": {
@@ -357,7 +380,7 @@
   "frozen_hashes": {
     "target_matrix_sha256": "92333f73d714bb9ec99b23c96473de1cc1de4c5bc06e0893932f85574fcb0685",
     "primary_runtime_sha256": "fc912b5793536d47bebf7e2cd1ade48a16f937ed4b08d57c0bc9ba42b1122893",
-    "simulation_model_signature": "747fbc5f68893fb3",
-    "book_acceptance_signature": "897537ae5d0c73d9"
+    "simulation_model_signature": "85da8176550fe9e9",
+    "book_acceptance_signature": "63080f9473d715ba"
   }
 }
