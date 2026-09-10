@@ -447,6 +447,13 @@ def test_the_manuscript_matches_the_stored_runs():
     text = open(mod.ARTICLE, encoding='utf-8').read()
     missing = []
     for label, value, places, where in rows:
+        # Figures the tool measures and prints without asserting them, because
+        # the manuscript argues that quantity from a different measurement.
+        # They are reported for a reader of the repository and are not claims
+        # the paper makes, so holding the paper to them fails on content the
+        # paper never states.
+        if where == mod.REPORTED:
+            continue
         shown = f'{value:.{places}f}'
         body = mod._table_body(text, where)
         # Every way the manuscript is allowed to write the number, the tool's
