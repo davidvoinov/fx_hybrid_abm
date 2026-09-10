@@ -13,6 +13,7 @@ revising, and adding a claim to it is how a new number becomes protected.
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 import sys
@@ -31,6 +32,19 @@ WITHDRAWN_MARKER = 'PNL_RESULTS_WITHDRAWN_PENDING_RECOMPUTATION'
 # and not a token. A token would have to be typeset to satisfy this check,
 # which is absurd, or hidden in a comment, which is the failure being fixed.
 PAIR_PROVENANCE_MARKER = 'computed on the branch calibrated to that pair'
+
+
+# Measured, printed, and deliberately not asserted against the manuscript.
+#
+# The baseline and uniform sweep P&L reports charge the fee on every automated
+# venue with the reduced form provider. The manuscript argues the payoff from
+# the earnings table and the fee frontier, both of which measure the pool alone
+# with the endogenous provider, so these figures answer a neighbouring question
+# and no sentence in the paper quotes them. They stay in the report because a
+# reader of the repository should see them beside the numbers that are quoted.
+# Asserting them once required a tab:lppnl the manuscript no longer carries,
+# and the signature mismatch that hid this block also hid that.
+REPORTED = '-'
 
 
 def _report(path):
@@ -285,6 +299,29 @@ def _earnings_claims():
     return out
 
 
+def _frontier_claims():
+    """The endpoints of the fee frontier the manuscript plots and quotes.
+
+    Losses are stated in the prose as positive quantities, so the magnitude
+    is what has to appear.
+    """
+    path = os.path.join(ROOT, 'output', 'figure_data.json')
+    try:
+        with open(path, encoding='utf-8') as handle:
+            frontier = json.load(handle).get('frontier') or {}
+    except (OSError, ValueError):
+        return []
+    fees = sorted(frontier, key=float)
+    if len(fees) < 2:
+        return []
+    out = []
+    for end, key in (('low', fees[0]), ('high', fees[-1])):
+        crisis = frontier[key].get('crisis')
+        if crisis is not None:
+            out.append((f'frontier {end} crisis loss', abs(float(crisis)), 3, '*'))
+    return out
+
+
 def claims():
     """Label, expected number, decimals, and where it has to appear.
 
@@ -294,7 +331,7 @@ def claims():
     again as the point estimates.
     """
     from tools.robustness import lp_pnl_corrected as T
-    current = T.run_signature()
+    current = _pnl_expected_signature(T.run_signature())
     base = _report(os.path.join(ROOT, 'output', 'resilience',
                                 'lp_pnl_baseline_300.txt'))
     if base.get('signature') != current:
@@ -312,24 +349,24 @@ def claims():
         out.append((f'{prefix} upper', hi, places, where))
 
     if base.get('rows'):
-        triple('calibrated calm', base['rows']['calm'], 4, 'tab:lppnl')
-        triple('calibrated crisis', base['rows']['crisis'], 4, 'tab:lppnl')
+        triple('calibrated calm', base['rows']['calm'], 4, REPORTED)
+        triple('calibrated crisis', base['rows']['crisis'], 4, REPORTED)
         if base.get('breakeven'):
-            triple('calibrated break even', base['breakeven'], 2, 'tab:lppnl')
+            triple('calibrated break even', base['breakeven'], 2, REPORTED)
     # H2 argues from the shape of the loss and not from its portfolio
     # total, so the crisis figure it quotes is protected here as well. The
     # calm counterpart rounds to zero and is stated in words, so there is no
     # number to hold it to.
     v = base.get('losses', {}).get(('hfmm', 'crisis'))
     if v is not None:
-        out.append(('hfmm crisis loss', v, 4, '*'))
+        out.append(('hfmm crisis loss', v, 4, REPORTED))
     for bps in sorted(swp):
         b = swp[bps]
         if b['rows']:
-            triple(f'uniform {bps} calm', b['rows']['calm'], 4, 'tab:lppnl')
-            triple(f'uniform {bps} crisis', b['rows']['crisis'], 4, 'tab:lppnl')
+            triple(f'uniform {bps} calm', b['rows']['calm'], 4, REPORTED)
+            triple(f'uniform {bps} crisis', b['rows']['crisis'], 4, REPORTED)
         if b['breakeven']:
-            triple(f'uniform {bps} break even', b['breakeven'], 2, 'tab:lppnl')
+            triple(f'uniform {bps} break even', b['breakeven'], 2, REPORTED)
 
     # The second pair carries the paper's headline result and nothing checked
     # it. These rows are read from the artifacts of that branch, and only when
@@ -337,17 +374,17 @@ def claims():
     # run cannot quietly certify the manuscript.
     out.extend(_branch_claims())
 
-    # The fee frontier is argued in prose, using the endpoints of the sweep.
-    # Checking only the table let that paragraph keep the numbers of a market
-    # with two pools while the table beside it carried the numbers of a market
-    # with one. The prose has to move with the runs like everything else.
-    lo, hi = (min(swp), max(swp)) if swp else (None, None)
-    if lo is not None and lo != hi:
-        for end, bps in (('low', lo), ('high', hi)):
-            b = swp[bps]
-            if b['rows']:
-                out.append((f'frontier {end} calm', b['rows']['calm'][0], 4, '*'))
-                out.append((f'frontier {end} crisis', b['rows']['crisis'][0], 4, '*'))
+    # The fee frontier is argued in prose, and the prose has to move with the
+    # run the figure beside it is drawn from.
+    #
+    # That run is the frontier of figure_data, which varies the fee on the
+    # pool alone with the endogenous provider. The uniform sweep read above
+    # is a different experiment, charging the fee on every automated venue
+    # with the reduced form provider, and it answers a different question.
+    # Holding the paragraph to the sweep asked it to quote numbers no figure
+    # in the manuscript plots, and the two differ by about a third at the
+    # wide end for that reason and not because either is stale.
+    out.extend(_frontier_claims())
 
     out.extend(_calibration_claims())
     out.extend(_migration_claims())
@@ -486,6 +523,30 @@ def seed_counts():
     return out
 
 
+def _pnl_expected_signature(local):
+    """What the primary pair P&L reports should have been produced under.
+
+    These reports measure the primary pair and are produced in the worktree
+    carrying its calibration, then copied into the branch worktree the
+    manuscript is built from. The two differ in main.py, so a signature
+    recomputed here is the branch's and never the one the reports legitimately
+    carry. Checking against it marked fresh reports stale on every run and
+    would have gone on doing so however often they were rerun.
+
+    The sidecar records the signature they were actually produced under. With
+    no sidecar the local value stands, which is the right answer whenever the
+    manuscript and the measurement live in one worktree.
+    """
+    path = os.path.join(ROOT, 'output', 'resilience',
+                        'main_pair_provenance.json')
+    try:
+        with open(path, encoding='utf-8') as handle:
+            recorded = json.load(handle).get('pnl_measurement_signature')
+    except (OSError, ValueError):
+        return local
+    return recorded or local
+
+
 def signatures():
     """The P&L measurement signature each stored report used."""
     from tools.robustness import lp_pnl_corrected as T
@@ -499,7 +560,8 @@ def signatures():
     # is what these two do: they carry a model signature line and no
     # measurement one. It is reported as its own state, since a comparison
     # that cannot be made is not the same as one that fails.
-    return {'current': T.run_signature(), 'baseline': base.get('signature'),
+    return {'current': _pnl_expected_signature(T.run_signature()),
+            'baseline': base.get('signature'),
             'sweep': swp_sig,
             'baseline_model_signature': base.get('model_signature'),
             'reports_declare_a_measurement_signature': bool(
@@ -698,14 +760,38 @@ def main():
             bad.append(('the sweep report parsed no rows',
                         'check the row pattern', swp_path))
 
+    # A location the manuscript does not carry is a different fault from a
+    # number that disagrees, and printing it once per claim buried it under
+    # dozens of identical lines. Report the absent location itself, once, and
+    # keep it counted so that dropping a table cannot pass unnoticed.
+    absent = {}
+    for _, _, _, where in rows:
+        if where not in ('*', REPORTED) and not _table_body(text, where):
+            absent[where] = absent.get(where, 0) + 1
+
+    reported = [r for r in rows if r[3] == REPORTED]
+    rows = [r for r in rows if r[3] != REPORTED]
+
     print(f'{"claim":36s} {"measured":>10s}  in its table')
     for label, value, places, where in rows:
         shown = f'{value:.{places}f}'
+        if where in absent:
+            continue
         body = _table_body(text, where)
         found = any(w in body for w in spellings(value, places))
         print(f'{label:36s} {shown:>10s}  {"yes" if found else "NO"}')
         if not found:
             bad.append((label, shown, where))
+    for where, n in sorted(absent.items()):
+        print(f'{where:36s} {"absent":>10s}  {n} claims target it')
+        bad.append((f'the manuscript carries no {where}',
+                    f'{n} claims target it', where))
+
+    if reported:
+        print()
+        print('measured and reported, not asserted against the manuscript')
+        for label, value, places, _ in reported:
+            print(f'  {label:34s} {value:.{places}f}')
 
     print()
     counts = seed_counts()

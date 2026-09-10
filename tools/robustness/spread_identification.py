@@ -106,13 +106,38 @@ def _median_interval(values, draws=2000, seed=12345):
     return [lo, hi]
 
 
+def _target_band(target):
+    """The acceptance band of a target, in whichever form it declares one.
+
+    A pair states this target as a range on one branch and as a point with a
+    tolerance on the other, and the ablation only needs the interval either
+    of them denotes. Reading the range alone raised KeyError on the pair that
+    carries the point, which stopped the ablation rather than measuring it.
+    """
+    band = target.get('target_range')
+    if band:
+        return float(band['low']), float(band['high'])
+    centre = target.get('target_value')
+    tol = target.get('accepted_error_band') or {}
+    if centre is None:
+        raise SystemExit(
+            'target %s declares neither a range nor a value' % OBSERVABLE)
+    centre = float(centre)
+    if tol.get('absolute') is not None:
+        width = float(tol['absolute'])
+    elif tol.get('relative') is not None:
+        width = abs(centre) * float(tol['relative'])
+    else:
+        width = 0.0
+    return centre - width, centre + width
+
+
 def run(seeds, workers):
     with open(TARGETS, encoding='utf-8') as handle:
         payload = json.load(handle)
     target = [row for row in payload['targets']
               if row['observable'] == OBSERVABLE][0]
-    band = target['target_range']
-    low, high = float(band['low']), float(band['high'])
+    low, high = _target_band(target)
 
     import main as main_module
     parser = main_module.build_parser()
