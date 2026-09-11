@@ -202,9 +202,8 @@
     "development": {
       "seed_start": 42,
       "seed_count": 300,
-      "status": "passed_under_eurchf_branch_v6",
-      "output": "output/final/book_development_eurchf_v6_300.json",
-      "result": "All sixteen mechanism checks pass on the three hundred seed panel and no gating target is outside its band. No seed evacuates the dealer sector, the peak share withdrawn is 0.600 at the median and 0.800 at the worst seed, and the four frozen digests of the run match the ones recorded here."
+      "status": "pending_run_under_eurchf_branch_v6",
+      "output": "output/final/book_development_eurchf_v6_300.json"
     },
     "holdout": {
       "seed_start": 20042,
