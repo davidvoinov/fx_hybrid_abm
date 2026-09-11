@@ -42,8 +42,6 @@ PAIR_PROVENANCE_MARKER = 'computed on the branch calibrated to that pair'
 # with the endogenous provider, so these figures answer a neighbouring question
 # and no sentence in the paper quotes them. They stay in the report because a
 # reader of the repository should see them beside the numbers that are quoted.
-# Asserting them once required a tab:lppnl the manuscript no longer carries,
-# and the signature mismatch that hid this block also hid that.
 REPORTED = '-'
 
 
@@ -368,10 +366,10 @@ def claims():
         if b['breakeven']:
             triple(f'uniform {bps} break even', b['breakeven'], 2, REPORTED)
 
-    # The second pair carries the paper's headline result and nothing checked
-    # it. These rows are read from the artifacts of that branch, and only when
-    # those artifacts were produced by the model now in the tree, so a stale
-    # run cannot quietly certify the manuscript.
+    # The second pair carries the paper's headline result. These rows are read
+    # from the artifacts of that branch, and only when those artifacts were
+    # produced by the model now in the tree, so a stale run cannot certify the
+    # manuscript.
     out.extend(_branch_claims())
 
     # The fee frontier is argued in prose, and the prose has to move with the
@@ -745,10 +743,9 @@ def main():
         return 1
 
     bad = []
-    # A parser that stops matching returns fewer claims instead of failing,
-    # which is how this check quietly shrank from thirty seven figures to ten
-    # after a block header was reworded. A stored report that holds seeds has
-    # to yield claims.
+    # A parser that stops matching returns fewer claims instead of failing, so
+    # a reworded block header would shrink this check without announcing it. A
+    # stored report that holds seeds has to yield claims.
     swp_path = os.path.join(ROOT, 'output', 'resilience',
                             'lp_pnl_uniform_sweep_300.txt')
     if os.path.exists(swp_path):

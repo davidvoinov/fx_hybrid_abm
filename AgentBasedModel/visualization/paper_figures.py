@@ -512,11 +512,10 @@ def fig_pair_comparison(main='output/resilience/welfare_{}.json',
     return _save(fig, 'pair_comparison.pdf')
 
 
-# Every figure the manuscript prints. The list used to sit above the last
-# function in this file and therefore could not name it, so the panel that
-# compares the two pairs was drawn once by hand and never redrawn: it was the
-# one figure in the paper that no run of the figure command could refresh, and
-# it would have gone stale without saying so.
+# Every figure the manuscript prints. The list sits below the last function in
+# this file so that it can name all of them. A list placed above them would
+# leave the figures it cannot reach outside the figure command, where they go
+# stale without saying so.
 ALL = (fig_availability, fig_decomposition, fig_resilience, fig_cost_measures,
        fig_dislocation_path, fig_providers, fig_markout, fig_size_curve,
        fig_fee_frontier, fig_cascade, fig_efficiency, fig_pair_comparison)

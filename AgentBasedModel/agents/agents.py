@@ -480,13 +480,11 @@ class ExchangeAgent:
             scaled_target = max(1.0, self._background_target_qty.get(side, 0.0) * target_ratio)
             if respect_trader_cap:
                 # The floor fades out as the book's own participants arrive.
-                # It used to survive at a fixed fraction of the target
-                # whatever they supplied, which made this scaffold a standing
-                # presence and not a backstop: it held about half of the
-                # best prices through a crisis and after it, while owning no
-                # capital, bearing no inventory limit and being unable to
-                # withdraw. It exists for a book that is empty, and an empty
-                # book is what it is now measured against.
+                # Surviving at a fixed fraction of the target whatever they
+                # supplied would make this scaffold a standing presence and
+                # not a backstop, holding best prices through a crisis while
+                # owning no capital, bearing no inventory limit and being
+                # unable to withdraw. It exists for a book that is empty.
                 trader_qty = max(0.0, trader_near_qty.get(side, 0.0))
                 coverage = min(1.0, trader_qty / max(scaled_target, 1e-9))
                 floor = scaled_target * self._background_floor_ratio * (1.0 - coverage)
@@ -1167,10 +1165,10 @@ class Trader:
             self.cash += gross * (1.0 - t_cost)
             self.assets -= fill_qty
 
-        # A fully executed order no longer rests and must not remain in the
-        # owner's local order list.  Keeping the zero-quantity shell made the
-        # dealer believe it still had a quote set and prevented replenishment
-        # after the first hit, while fast providers were allowed to repost.
+        # A fully executed order does not rest and must not remain in the
+        # owner's local order list. A zero quantity shell left there would tell
+        # the dealer it still had a quote set and block replenishment after the
+        # first hit, while fast providers went on reposting.
         if order.qty <= 1e-12:
             if hasattr(self, 'record_order_end'):
                 self.record_order_end(order, reason='fill')
@@ -2458,18 +2456,13 @@ class FastRecyclerLP(RestingQuoteProvider, Random):
         toxic_bias = abs(getattr(self.env, 'toxic_flow_bias', 0.0)) if self.env is not None else 0.0
 
         # The constant term is the probability of not quoting at all in a
-        # period when nothing is wrong. It was a tenth, so each provider went
-        # silent about once every ten seconds in calm conditions, and with a
-        # two tick order life that opened one sided gaps in the near book.
-        # A non bank market maker on a primary venue refreshes continuously
-        # and manages risk by widening and not by disappearing, so the
-        # calm rate of abstention belongs at or near zero.
+        # period when nothing is wrong. A non bank market maker on a primary
+        # venue refreshes continuously and manages risk by widening and not by
+        # disappearing, so the calm rate of abstention belongs at or near zero.
         #
-        # The stress terms used to carry the retreat, and unbounded they
-        # reached the cap of 0.85 in a crisis, which took this provider out
-        # of the book entirely: measured over the crisis window it held 0.2%
-        # of the touch against 41.5% before the shock, and 0.0% afterwards.
-        # The evidence says otherwise. On the ECB contact group figures for
+        # Unbounded stress terms would carry the retreat to the cap of 0.85 in
+        # a crisis and take this provider out of the book entirely. The
+        # evidence says otherwise. On the ECB contact group figures for
         # EBS a non bank's make:take moved only from 33:67 to 30:70 through a
         # stress event, a retreat of about a tenth of its making, while a
         # bank's moved from 55:45 to 70:30. The stress index therefore scales
@@ -2498,15 +2491,10 @@ class FastRecyclerLP(RestingQuoteProvider, Random):
         total_spread_bps *= 1.0 + 0.60 * toxic_bias + 0.35 * (1.0 - liquidity)
         tick = self.market._tick_size() if hasattr(self.market, '_tick_size') else 0.01
         # The floor is half a tick, so the tightest quotable market is one
-        # tick wide. It used to be a hundredth of a price unit, which at a
-        # numeraire of one hundred is a whole basis point of half spread and
-        # therefore a two basis point market, whatever the rule above
-        # computed. At the calibrated coefficients the rule produced 2.02
-        # basis points and the floor sat just underneath, so it never showed
-        # itself, and the quoted spread of this model was a constant rather
-        # than a behaviour. Lowering any quoting coefficient moved nothing.
-        # The constraint that actually exists is the price grid, and it is a
-        # grid, not an absolute amount of quote currency.
+        # tick wide. An absolute floor in quote currency would bind instead of
+        # the rule above, holding the quoted spread of this model at a constant
+        # and leaving every quoting coefficient without effect. The constraint
+        # that exists is the price grid, and it is a grid and not an amount.
         half_spread = max(0.5 * tick, mid * total_spread_bps / 20_000.0)
         self._remember_geometry(half_spread,
                                 max(1, min(self.max_qty, self.base_qty)),
@@ -2800,16 +2788,13 @@ class Fundamentalist(Trader):
         if not qty:
             return
 
-        # How far from its own valuation this trader is willing to rest.
-        # It used to be an exponential draw with a mean of two and a half
-        # price units, which at a numeraire of one hundred is two hundred
-        # and fifty basis points: an order that could never be at the touch
-        # of a market whose spread is under one. The offer therefore stood
-        # so far away that the whole of price discovery ran through the
-        # market orders in the branches below, and this class never set a
-        # price. The offset is now a multiple of the volatility of one
-        # period and is floored at one tick, so a resting valuation is a
-        # quote and not a gesture.
+        # How far from its own valuation this trader is willing to rest. An
+        # offset fixed in price units would stand hundreds of basis points from
+        # a market whose spread is under one, so the order could never reach
+        # the touch and the whole of price discovery would run through the
+        # market orders in the branches below. The offset is a multiple of the
+        # volatility of one period and is floored at one tick, so a resting
+        # valuation is a quote and not a gesture.
         def offset() -> float:
             sigma = abs(float(getattr(self.env, 'price_sigma', 0.0) or 0.0)) \
                 if self.env is not None else 0.0
@@ -3014,17 +2999,12 @@ class MarketMaker(Trader):
         )
         self._withdrawal_confirmation_count = 0
 
-        # Inventory & order-flow tracking
-        # The net position is read from ``Trader.assets`` and is not carried
-        # separately. There used to be two: the withdrawal score read
-        # ``assets``, which every fill updates the moment it happens, while
-        # the quote skew and the one sided thinning read a private counter
-        # that was only refreshed on the dealer's next call by inspecting its
-        # own old orders. During a scenario pause that call is skipped and the
-        # orders are cancelled, so the fills were never counted and the two
-        # drifted apart exactly when the shock was doing its work: one dealer
-        # carried assets of 18.8 against a private counter still reading 3.
-        # The dealer then skewed and thinned the wrong side.
+        # Inventory and order flow tracking. The net position is read from
+        # ``Trader.assets``, which every fill updates the moment it happens,
+        # and is not carried separately. A private counter refreshed only on
+        # the dealer's next call would miss the fills of a scenario pause,
+        # where that call is skipped and the orders are cancelled, and the two
+        # would drift apart exactly when the shock is doing its work.
         self._ofi_window: List[float] = []  # recent order-flow imbalance
         self._ofi_maxlen: int = 20
         self.mm_state: str = 'active'
@@ -3514,8 +3494,8 @@ class MarketMaker(Trader):
         # it. Kirilenko and co-authors describe a market maker that supplies
         # liquidity up to a level of inventory and then stands down, so the
         # term has to reach unity at the limit and not fifty per cent beyond
-        # it. Under the old denominator a dealer sitting on half its limit
-        # scored a third, and the term could only bite once the limit had
+        # it. A wider denominator would score a dealer sitting on half its
+        # limit at a third, and the term could only bite once the limit had
         # already been breached.
         inventory_ratio = min(1.5, inventory_abs / max(float(self.softlimit), 1.0))
         # Risk trigger reads the env's single-EWMA CLOB order-flow
@@ -4127,13 +4107,6 @@ class AMMProvider:
             return
 
         ref_price = self._reference_price()
-        # Two smoothed statistics used to be accumulated here, a mark to
-        # market result and an adverse selection score. The rule they once fed
-        # was removed so that the implementation would match the equation in
-        # the paper, and the state was left behind, computed every period and
-        # read by nothing. Carrying it made the provider look as though it
-        # weighed things it does not weigh.
-
         # Fee income has to be claimed from the pool and credited to the
         # provider before it can be acted on. The pool withholds a sell fee in
         # base and a buy fee in quote, and reading the pool's quote valued
@@ -4155,14 +4128,10 @@ class AMMProvider:
 
         # Every term below is a rate per period, so the fractional change is
         # dimensionless and does not depend on the currency the pair happens to
-        # be quoted in. The earlier form added a fee in quote units to a
-        # volatility and a funding cost, then divided the sum by a liquidity
-        # measure carrying units of its own, the square root of the reserve
-        # product for the constant product pool and the invariant for the
-        # hybrid one. Restating the same market with a price of a hundred
-        # and not one changed the constant product response to a fee by a
-        # factor of twenty six and reversed its sign, so the mechanism was
-        # reading the numeraire and not the economics.
+        # be quoted in. Adding a fee in quote units to a volatility and a
+        # funding cost, then dividing by a liquidity measure carrying units of
+        # its own, would make the response to a fee a function of the numeraire
+        # and not of the economics.
         #
         #     dL / L = phi1 * fee income / pool value
         #              - phi2 * (volatility of the price per period) squared
@@ -4174,9 +4143,7 @@ class AMMProvider:
         # loses to rebalancing over a period grows with the square of the price
         # move, at a rate of one eighth of the variance for a constant product
         # pool in \\citet{milionis2022} and faster on an amplified curve, so a
-        # term linear in the volatility is not a loss rate at all. It only
-        # looked defensible while the index had no time scale and the
-        # coefficient could absorb anything.
+        # term linear in the volatility is not a loss rate at all.
         pool_value = max(self._pool_mark_to_market(ref_price), 1e-9)
         fee_return = fee_income / pool_value
         vol = float(getattr(self.env, 'price_sigma', self.env.sigma))

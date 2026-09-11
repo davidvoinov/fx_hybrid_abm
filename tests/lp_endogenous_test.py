@@ -274,9 +274,8 @@ def test_floor_delays_but_never_erases_a_claim():
             bound = True
             break
     check_bool("the floor did bind", bound, f"{pop.floor_binds}")
-    # The floor bounds the withdrawal itself. Asserting that the pool ended
-    # up below it would enshrine the very defect this guards against, so the
-    # test requires the reserves to stop at the floor and not pass it.
+    # The floor bounds the withdrawal itself, so the test requires the
+    # reserves to stop at the floor and not pass it.
     floor = pop.min_reserve_ratio * pop._initial_value
     check_bool("the reserves stopped at the floor and did not cross it",
                pop._value(pop._reference_price()) >= floor - 1e-9,
@@ -654,8 +653,8 @@ def test_the_size_response_is_sensitive_to_the_outside_option_everywhere():
         # Hold the excess return fixed so that only the normalisation moves.
         return lp.decide(outside_option + excess, 1)
 
-    # Every one of these sits below the response scale, which is the range the
-    # maximum used to flatten completely.
+    # Every one of these sits below the response scale, which is the range a
+    # maximum would flatten completely.
     options = [0.0, 1.3319e-9, 1e-8, 1e-7, 5e-7]
     responses = [response(option) for option in options]
 
@@ -1005,14 +1004,14 @@ def test_full_wind_down_ignores_unowned_supply_dust():
     pop, pool = make_pop(n_providers=1, n_entrants=0, kappa=0.0)
     provider = pop.providers[0]
     provider.active = False
-    # The residual claim is above the old absolute 1e-9 cutoff but below a
-    # scale-aware tolerance for this 2,000-token pool.  It is numerical dust,
-    # not economically deployed capital, and must not retain half the pool.
+    # The residual claim is above an absolute 1e-9 cutoff but below a scale
+    # aware tolerance for this 2,000 token pool. It is numerical dust, not
+    # economically deployed capital, and must not retain half the pool.
     residual_claim = 1.2e-9
     provider.pending_burn = provider.tokens - residual_claim
     provider.tokens = residual_claim
-    # Reproduce the scale of the two primary paths that ended with no active
-    # provider but missed the old absolute winding-down comparison by 1.1e-9.
+    # Reproduce the scale of the two primary paths that end with no active
+    # provider while sitting 1.1e-9 from an absolute winding down comparison.
     pop._serve_redemptions(pop._reference_price())
     pop._publish_closed()
     check_close("the numerical supply residual is extinguished",
@@ -1103,8 +1102,8 @@ def test_runs_inside_the_simulator():
 
 
 # ─────────────────────────────────────────────────────────────────────
-# Regressions for the defects raised by the second external audit. Each
-# of these was reproduced numerically before it was repaired.
+# Guards on the accounting of the endogenous provider. Each is stated as
+# a numerical condition the population has to satisfy.
 # ─────────────────────────────────────────────────────────────────────
 @_asserting
 def test_trading_fees_reach_the_providers():
@@ -1469,8 +1468,8 @@ def test_refounding_rebases_the_reserve_floor():
     force(pop, -1.0)
     pop.update_liquidity()
     drain(pop)
-    # Refound with a fraction of the original, small enough that the old floor
-    # would sit above the whole of the new pool.
+    # Refound with a fraction of the original, small enough that a floor set
+    # against the opening size would sit above the whole of the new pool.
     cash = 0.005 * old_initial
     for lp in pop.providers:
         lp.wallet = 0.0
@@ -1697,10 +1696,9 @@ def test_the_venue_stream_is_stable_across_processes():
 
 
 # ─────────────────────────────────────────────────────────────────────
-# The economics of the rule provider, not only its cash handling. The
-# third audit noted that the tests proved fees reached a wallet while
-# saying nothing about how the mechanism responds, and that the rule was
-# reading the currency the pair happens to be quoted in.
+# The economics of the rule provider and not only its cash handling. A
+# test that fees reach a wallet says nothing about how the mechanism
+# responds, or about whether it reads the currency of the quote.
 # ─────────────────────────────────────────────────────────────────────
 def _rule_env(price=1.0, sigma=0.01, c=0.002):
     from AgentBasedModel.environment.processes import MarketEnvironment

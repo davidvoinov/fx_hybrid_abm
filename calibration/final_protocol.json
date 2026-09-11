@@ -1,6 +1,6 @@
 {
-  "protocol_version": "book-lp-final-v5.3",
-  "frozen_at": "2026-08-21",
+  "protocol_version": "book-lp-final-v5.4",
+  "frozen_at": "2026-09-11",
   "scope": "Computational closure of the EBS book calibration and endogenous AMM-LP block. Manuscript prose is outside this protocol.",
   "revision_history": [
     {
@@ -123,20 +123,33 @@
         "The figure registry names every figure the manuscript prints, including the one comparing two pairs, which no run of the figure command could reach.",
         "welfare_accounting.annual_frame acquires a caller, and identify and participation are reachable from the entry point."
       ]
+    },
+    {
+      "version": "book-lp-final-v5.4",
+      "frozen_at": "2026-09-11",
+      "result": "the primary pair is refrozen on the model the two branches now share",
+      "reason": "Three corrections landed on the shared model after v5.3 was frozen, and none of them is a calibration choice for this pair. The protocol recorded digests of the model as it stood before them, so a run under the current tree could not match the record and the phases stayed pending. This entry refreezes the record on the model in the tree.",
+      "changes": [
+        "A dealer that stays now picks up part of the depth the dealers that leave gave up, which is the replacement channel. Its gain is zero in every calibration of this pair, so the channel is inert here and the digests move only because the source does.",
+        "The replacement response multiplies the depth a dealer would actually show and not the running total behind it, which the volatility, funding and inventory terms can drive below zero.",
+        "The order flow sweep records what it filled and those fills reach the flow accounting, so an episode that removes liquidity now also generates the signed flow the dealer constraints respond to.",
+        "A financing charge or balance sheet check that raises is counted instead of silently swallowed.",
+        "The seeds, the targets and the calibration of this pair do not move. The panel this protocol commits to is the same measurement it was."
+      ]
     }
   ],
   "phases": {
     "development": {
       "seed_start": 42,
       "seed_count": 300,
-      "status": "pending_rerun_under_v5",
-      "output": "output/final/book_development_v5_300.json"
+      "status": "pending_run_under_book_lp_final_v5_4",
+      "output": "output/final/book_development_v54_300.json"
     },
     "holdout": {
       "seed_start": 20042,
       "seed_count": 300,
       "status": "untouched_single_use_holdout",
-      "output": "output/final/book_holdout_v5_300.json"
+      "output": "output/final/book_holdout_v54_300.json"
     }
   },
   "thresholds": {
@@ -306,8 +319,8 @@
   },
   "frozen_hashes": {
     "target_matrix_sha256": "84e0b86ef47da6a9ae3a7d42b13d3bd0764925955a5a61ec75dc98ecb13f7788",
-    "primary_runtime_sha256": "3303460c2e202779b00147b3d66cf66bb6878318b443c6842fb778d9619cd573",
-    "simulation_model_signature": "5f818bf82526c1e1",
-    "book_acceptance_signature": "33fdee68099f0193"
+    "primary_runtime_sha256": "2c9afaeb527aca8b8f45eef09c6b38464d872b14e125d1572ec50fb65f57cd20",
+    "simulation_model_signature": "19c9454bf5304371",
+    "book_acceptance_signature": "b10fc5378aa55796"
   }
 }

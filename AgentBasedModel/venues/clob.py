@@ -229,13 +229,12 @@ class CLOBVenue:
             return {'bid': 0.0, 'ask': 0.0, 'total': 0.0}
         lo = centre * (1 - bps / 10_000)
         hi = centre * (1 + bps / 10_000)
-        # Both bounds, on both sides. Only the far bound used to be applied,
-        # which is harmless while the centre is the book mid, because no bid
-        # can sit above it in an uncrossed book. Around the fair price it is
-        # not harmless: after the fundamental value falls, bids left at the
-        # old level are far above the new centre and were still counted as
-        # depth beside it, so a corridor with nothing in it reported size and
-        # the repair that should have fired did not.
+        # Both bounds, on both sides. Applying the far bound alone is harmless
+        # while the centre is the book mid, because no bid can sit above it in
+        # an uncrossed book. Around the fair price it is not, since after the
+        # fundamental value falls the bids left behind sit far above the new
+        # centre and would still count as depth beside it, so a corridor with
+        # nothing in it reports size and the repair never fires.
         bid_vol = sum(o.qty for o in self.exchange.order_book['bid']
                       if lo <= o.price <= hi)
         ask_vol = sum(o.qty for o in self.exchange.order_book['ask']

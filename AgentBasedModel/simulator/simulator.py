@@ -13,10 +13,9 @@ import json as _json
 import math as _math
 import os as _os
 
-# The calibrated values live in one file and every entry point has to read them
-# from there. The factory used to carry its own literals in the signature, so a
-# script calling ``Simulator.default_fx`` directly built a different model from
-# the one the command line builds, with no warning and no way to notice.
+# The calibrated values live in one file and every entry point reads them from
+# there, so a script calling ``Simulator.default_fx`` directly builds the same
+# model the command line builds.
 _CALIBRATION_PATH = _os.path.join(
     _os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))),
     'calibration', 'primary_model.json')
@@ -223,8 +222,8 @@ class Simulator:
                 # happened. A financing charge that never lands leaves a
                 # balance sheet uncontrolled, and a silent pass made that
                 # indistinguishable from a period in which every charge
-                # landed. Nothing reads the counter to change behaviour; it
-                # exists so the condition is visible in an audit.
+                # landed. Nothing reads the counter to change behaviour, and
+                # it exists so that the condition stays visible.
                 self.balance_sheet_control_failures = getattr(
                     self, 'balance_sheet_control_failures', 0) + 1
 
@@ -401,9 +400,9 @@ class Simulator:
         except Exception:
             return
 
-        # Each side is checked on its own. The aggregate was enough to keep
-        # the restoration from firing when one side had been swept and the
-        # other still held size, which is exactly the state that needs it.
+        # Each side is checked on its own, because an aggregate depth keeps
+        # the restoration from firing when one side has been swept and the
+        # other still holds size, which is exactly the state that needs it.
         if (near_mid_depth.get('bid', 0.0) > 1e-9
                 and near_mid_depth.get('ask', 0.0) > 1e-9):
             return
@@ -673,12 +672,10 @@ class Simulator:
     # ---- multi-venue loop -----------------------------------------------
 
     def _simulate_multi(self, n_iter: int, silent: bool) -> Simulator:
-        # The tick counter persists across calls. It used to be the loop index,
-        # which restarts at zero every time simulate is called, so a run built
-        # by stepping one period at a time never reached the tick the shock is
-        # scheduled on and silently produced a shock free path. A single call
-        # is unaffected, since the origin is zero and the counter increments as
-        # the index did.
+        # The tick counter persists across calls, so a run built by stepping
+        # one period at a time reaches the tick the shock is scheduled on. A
+        # single call is unaffected, since the origin is zero and the counter
+        # increments as the loop index does.
         _t0 = getattr(self, '_tick_origin', 0)
         for _i in tqdm(range(n_iter), desc='Simulation', disable=silent):
             t = _t0 + _i
@@ -753,14 +750,11 @@ class Simulator:
             scheduled_market_makers = self._scheduled_market_makers()
 
             # The flag belongs to the scenario window and is cleared the tick
-            # the window closes, by whoever set it. It used to be cleared by
-            # the dealer itself, on the first tick it managed to quote again,
-            # which is several ticks later because its own state machine has
-            # to walk back from withdrawn through re-entering. A five tick
-            # scripted pause was therefore recorded as twelve to seventeen
-            # ticks of forced pause, and every tick of that overhang was a
-            # tick of the dealer's own decision being filed under the
-            # scenario's.
+            # the window closes, by whoever set it. Clearing it from the dealer
+            # instead would carry it several ticks further, because the state
+            # machine has to walk back from withdrawn through re-entering, and
+            # every tick of that overhang would file the dealer's own decision
+            # under the scenario's.
             #
             # The scenario pause is an overlay and never owns ``mm_state``.
             # Keeping the state machine untouched matters when a dealer was
@@ -777,10 +771,9 @@ class Simulator:
                 if mm_paused:
                     # The scenario takes the quotes down. This is imposed by
                     # the shock and is not a decision of the dealer, so it is
-                    # flagged separately and no longer hides inside the
-                    # withdrawn share. Reporting the two together made a
-                    # scripted pause look like evidence for an endogenous
-                    # mechanism.
+                    # flagged separately and stays out of the withdrawn share.
+                    # Reporting the two together would present a scripted
+                    # pause as evidence for an endogenous mechanism.
                     _mm.cancel_all_quotes()
                     _mm.mm_forced_pause = True
                 else:
@@ -845,7 +838,7 @@ class Simulator:
                     continue
                 # Who reposts is decided by who was actually filled. Asking
                 # instead whether a provider is currently showing both sides
-                # let one that had been hit on an earlier trade, or had never
+                # would let one hit on an earlier trade, or one that never
                 # posted a side, repost on somebody else's execution, which is
                 # size appearing without a cause. The resting quantity is read
                 # before and after the taker acts and only the providers whose
@@ -874,9 +867,9 @@ class Simulator:
                     if watch and result.get('venue') == 'clob':
                         # Each provider is told how much of its own size went,
                         # and on which side, so it replaces what it lost rather
-                        # than deciding from the shape of its remaining book. A
-                        # provider filled on its first level while still showing
-                        # a second one used to conclude that nothing had
+                        # than deciding from the shape of its remaining book,
+                        # which would tell a provider filled on its first level
+                        # while still showing a second one that nothing had
                         # happened to it.
                         taken = []
                         for lp in watch:
@@ -1010,13 +1003,11 @@ class Simulator:
                    # ``sigma`` is the stress index that drives dealer spreads,
                    # withdrawal and provider behaviour, and it is calibrated as
                    # such. The volatility of the latent price is a separate
-                   # quantity and is set here. The two were previously tied at
-                   # a ratio of 0.35, which put 35 basis points of price
-                   # movement into every tick. Against a quoted spread of two
-                   # basis points and a pool fee of five that is not a market
-                   # any liquidity provider survives, and the mismatch was the
-                   # reason the endogenous pool wound down before the shock it
-                   # exists to absorb. The default now maps one tick to one
+                   # quantity and is set here. Tying the two would put tens of
+                   # basis points of price movement into every tick, which
+                   # against a quoted spread of two basis points and a pool fee
+                   # of five is not a market any liquidity provider survives.
+                   # The default maps one tick to one
                    # second of EUR/USD at six per cent a year, which is the
                    # realised figure for 2026 and sits inside the five to ten
                    # per cent range of a calm year. Stress raises sigma
@@ -1370,9 +1361,9 @@ class Simulator:
                             A=hfmm_A, fee=hfmm_fee, rate=price,
                             dynamic_fee=dynamic_fee)
             amm_pools = {'hfmm': hfmm}
-            # The constant product pool is no longer a second venue of this
+            # The constant product pool is not a second venue of this
             # market. Its curvature is wrong for a pair that trades in a
-            # narrow band, it carried a small share of the flow, and holding
+            # narrow band, it carries a small share of the flow, and holding
             # two facilities at once made the question of how much capital
             # the facility commits harder to state than it needed to be. It
             # is kept in two places instead. It anchors the measurement of
@@ -1429,15 +1420,11 @@ class Simulator:
                 # amplification, exact to four decimal places over
                 # amplifications from one to forty. The same measurement
                 # returns exactly one eighth on the constant product curve,
-                # which is what makes the method credible. An earlier version
-                # carried a flat 2.25 that was assumed and not derived, and at
-                # the calibrated amplification of eighteen it understated the
-                # loss by more than half.
+                # which is what makes the method credible.
                 #
-                # Built by iterating the pools that are actually present. The
-                # earlier form named both pools directly, so removing one from
-                # the market left this branch referring to a pool that had not
-                # been constructed.
+                # Built by iterating the pools that are actually present, so
+                # that removing one from the market leaves no branch referring
+                # to a pool that was never constructed.
                 _rule_cfg = {
                     'cpmm': (calibrated_default('amm_lp_phi1_cpmm', 1.0),
                              calibrated_default('amm_lp_phi2_cpmm', 0.125),

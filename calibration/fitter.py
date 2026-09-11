@@ -623,7 +623,7 @@ class CalibrationFitter:
             'dealer_full_withdrawal_ticks': dealer_full_withdrawal_ticks,
             # The target statistic is estimated with live end-of-window orders
             # as right-censored exposures.  The completed-only median remains
-            # beside it as an audit diagnostic so the correction is visible.
+            # beside it as a diagnostic so the correction stays visible.
             'dealer_order_lifetime_median_seconds': dealer_lifecycle['km_median'],
             'dealer_order_lifetime_completed_median_seconds': dealer_lifecycle['completed_median'],
             'dealer_lifecycle_completed_count': dealer_lifecycle['completed_count'],
@@ -779,9 +779,9 @@ class CalibrationFitter:
 
             # Some observables are useful diagnostics but have no externally
             # identified numerical counterpart in the cited evidence.  A
-            # zero objective weight was not enough: the old report still
-            # labelled them pass/fail against arbitrary or circular numbers,
-            # which made a non-target look like failed validation.  Keep the
+            # zero objective weight is not enough on its own, since a report
+            # that still labels them pass or fail against arbitrary or circular
+            # numbers makes a non target look like failed validation. Keep the
             # measurement visible without manufacturing an acceptance test.
             if entry['reported_only']:
                 entry['status'] = 'reported_only'

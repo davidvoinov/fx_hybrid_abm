@@ -621,8 +621,8 @@ class MarketEnvironment:
         c_jump = (self.c_high - self.c_low) * intensity
         self._shock_sigma_overlay = max(self._shock_sigma_overlay, sigma_jump)
         self._shock_c_overlay = max(self._shock_c_overlay, c_jump)
-        # 12 + 18*intensity in the old tick form, as shares of the declared
-        # duration of twenty four seconds.
+        # 12 + 18*intensity in tick form, as shares of the declared duration
+        # of twenty four seconds.
         self.shock_ticks_remaining = max(
             self.shock_ticks_remaining,
             self._stress_seconds(intensity, base_share=0.5,
@@ -650,7 +650,7 @@ class MarketEnvironment:
         if cancel_frac <= 0 and intensity <= 0:
             return
 
-        # 10 + 20*intensity in the old tick form.
+        # 10 + 20*intensity in tick form.
         self.shock_ticks_remaining = max(
             self.shock_ticks_remaining,
             self._stress_seconds(intensity, base_share=10.0 / 24.0,
