@@ -87,10 +87,6 @@ class Order:
         return {'price': self.price, 'qty': self.qty, 'order_type': self.order_type,
                 'trader_link': self.trader}
 
-    @classmethod
-    def from_dict(cls, order_dict):
-        return Order(order_dict['price'], order_dict['qty'], order_dict['order_type'], order_dict.get('trader_link'))
-
 
 class OrderIter:
     """
@@ -140,9 +136,6 @@ class OrderList:
         for order in self:
             n += 1
         return n
-
-    def to_list(self) -> list:
-        return [order.to_dict() for order in self]
 
     def remove(self, order: Order):
         if order.order_type != self.order_type:

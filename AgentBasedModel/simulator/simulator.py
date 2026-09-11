@@ -331,13 +331,6 @@ class Simulator:
             ),
         }
 
-    def _pool_depth(self, pool) -> float:
-        try:
-            depth = float(pool.effective_depth())
-        except Exception:
-            return 0.0
-        return depth if _math.isfinite(depth) and depth > 0.0 else 0.0
-
     def _estimate_recovery_support(self) -> float:
         """How much standing liquidity the incumbent market itself supplies.
 
@@ -1802,10 +1795,4 @@ class Simulator:
         )
         built.freeze_provider_capital_on_shock = _capital_frozen
         return built
-
-    @classmethod
-    def default_fx_no_amm(cls, **kwargs) -> Simulator:
-        """Shortcut: CLOB-only FX simulator (no AMM)."""
-        kwargs.setdefault('enable_amm', False)
-        return cls.default_fx(**kwargs)
 
