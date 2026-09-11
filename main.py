@@ -68,10 +68,9 @@ PRIMARY_TARGETS_PATH = Path(__file__).resolve().parent / "calibration" / "primar
 
 # What CRISIS_PRESET holds when the manifest could not be read. It is not the
 # name of any episode, so the module imports and every command that would have
-# run an episode stops on an unknown preset. The fallback used to be the name
-# of a real episode of the primary pair, which on this branch is the one
-# outcome the function below says it refuses: the wrong episode measured
-# against the wrong crisis targets, silently.
+# run an episode stops on an unknown preset. Naming a real episode here
+# instead would deliver the one outcome the function below refuses, which is
+# the wrong episode measured against the wrong crisis targets.
 UNNAMED_EPISODE = '__no_episode_declared__'
 
 

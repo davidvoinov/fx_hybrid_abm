@@ -105,11 +105,9 @@ class ArmWindow:
     executed_notional: float
     taker_execution_cost: float
     # ``None`` means the provider window could not be measured on this seed,
-    # which is a different statement from a measured result of zero.  A pool
-    # that had already wound down before the window opened used to be entered
-    # as an exact zero, and a median taken over a mixture of measured results
-    # and those zeros is pulled towards zero by the seeds that carry no
-    # information at all.
+    # which is a different statement from a measured result of zero. Entering a
+    # pool that wound down before the window opened as an exact zero would put
+    # seeds carrying no information into the median, and pull it towards zero.
     lp_opening_capital: Optional[float] = 0.0
     # Capital the providers hold outside the pool at the opening of the window.
     # It is theirs and it is idle, so it carries the same opportunity cost as

@@ -35,20 +35,15 @@ from calibration.fitter import (
 # thousand second window to reproduce an annual venue median to within about
 # twenty per cent on nine draws in ten is a standard nobody has defended.
 #
-# It read as satisfied before because it was measuring a defect. Under protocol
-# v2 the dealer quote life cap was set to 290 seconds, exactly the published
-# target, and an anti-crossing rule stopped dealers taking each other, so every
-# dealer order ended on its timer and the per-seed median clung to the cap: the
-# fifth to ninety fifth percentile spanned 55 seconds and 99.3 per cent of
-# seeds sat inside the band. With quotes able to trade the same statistic is
-# centred better than before, at 292 seconds against a target of 290 where v2
-# gave 268.5, and disperses honestly over 141 seconds, so 83.7 per cent of
-# seeds fall inside. The earlier pass rate measured the cap and not the model.
-#
-# Demoting a criterion that a change of ours turned red is a move that has to
-# be justified by measurement and not convenience, and the numbers above
-# are that justification. Dispersion is now reported with its Wilson interval
-# and gated by nothing.
+# A high pass rate can also come from a cap. Hold the dealer quote life at the
+# published target of 290 seconds and stop dealers taking each other, and every
+# dealer order ends on its timer, so the per seed median clings to the cap, the
+# fifth to ninety fifth percentile spans 55 seconds and 99.3 per cent of seeds
+# sit inside the band. With quotes able to trade the same statistic centres at
+# 292 seconds against that target and disperses over 141 seconds, so 83.7 per
+# cent of seeds fall inside. The first rate measures the cap and the second
+# measures the model. Dispersion is reported with its Wilson interval and gated
+# by nothing.
 EBS_SEED_PASS_RATE_REFERENCE = 0.90
 MAX_CALM_ACTIVATION_RATE = 0.05
 MIN_CRISIS_ACTIVATION_RATE = 0.75
@@ -58,7 +53,7 @@ MIN_TWO_SIDED_BOOK_RATE = 0.999
 MAX_DEALER_LIFETIME_ATOM_SHARE = 0.25
 # A three-second lifetime on a one-second grid necessarily has a sizeable
 # first-tick mass.  This bound is looser than the dealer bound by design:
-# it catches the old provider-wide refresh pulse without rejecting the natural
+# it catches a provider wide refresh pulse without rejecting the natural
 # discretisation of an independent geometric clock.
 MAX_NONBANK_LIFETIME_ATOM_SHARE = 0.35
 # The share of the seed panel that must sit inside the bound above before the

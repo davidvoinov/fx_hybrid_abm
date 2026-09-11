@@ -11,13 +11,11 @@ BASELINE_PATH = Path("tests/baselines/fx_regression_baseline.json")
 
 
 # One seeded run is bit for bit reproducible on the same tree, so the only
-# difference this check has to tolerate is floating-point dust. It used to
-# carry a per-metric table of absolute allowances instead, up to two basis
-# points on quantities whose own scale is a fraction of one, and a third of a
-# unit of correlation. Nothing of that size is dust and a change detector set
-# that loose cannot do the job the module is named for: the correction of the
-# price grid moved the large-trade cost on this run from 0.75 basis points to
-# 1.47, a doubling, and the table passed it without a word.
+# difference this check has to tolerate is floating point dust. A per metric
+# table of absolute allowances instead, running to two basis points on
+# quantities whose own scale is a fraction of one, admits differences that are
+# not dust. A detector set that loose passes a doubling of the large trade cost
+# without a word, which is not the job the module is named for.
 TOLERANCE = 1e-6
 
 

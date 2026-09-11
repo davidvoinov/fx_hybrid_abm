@@ -12,9 +12,9 @@ from tools.robustness.migration_table import _phase_estimands
 def _sparse_flow_logger():
     logger = MetricsLogger()
     logger.iterations = [0, 1, 2]
-    # Active ticks have very different total sizes and AMM shares.  The quiet
-    # middle tick makes the old zero-filled time mean a third, even though the
-    # ratio of summed AMM to market volume is 19 / 110.
+    # Active ticks have very different total sizes and AMM shares. The quiet
+    # middle tick puts a zero filled time mean at a third, while the ratio of
+    # summed AMM to market volume is 19 / 110.
     logger.flow_volume = {
         'clob': [1.0, 0.0, 90.0],
         'hfmm': [9.0, 0.0, 10.0],

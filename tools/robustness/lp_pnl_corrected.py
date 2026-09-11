@@ -95,13 +95,12 @@ RAW_DIR = os.path.join(ROOT, 'output', 'resilience', 'raw')
 # result was produced. Without this the cache is a trap. Changing the loss
 # curvature, the windows, the preset or the profit and loss formula leaves the
 # seed numbers untouched, so a later run sees a seed it already has and
-# silently reports a figure from a model that no longer exists.
-# Naming the files by hand is how the list came to be short of the mark. The
-# preset that selects the scenario, the order book, the order objects and the
-# venue wrappers all decide what a seed produces, and none of them was listed.
-# The signature therefore walks the model package and adds the entry point and
-# the calibration alongside it, so a file has to be deleted from the project to
-# fall out of the digest.
+# silently reports a figure from a model that does not exist any more.
+# Naming the files by hand leaves the list short of the mark, since the preset
+# that selects the scenario, the order book, the order objects and the venue
+# wrappers all decide what a seed produces. The signature therefore walks the
+# model package and adds the entry point and the calibration alongside it, so a
+# file has to be deleted from the project to fall out of the digest.
 _SIGNATURE_ROOTS = (
     os.path.join('AgentBasedModel'),
 )
@@ -422,12 +421,10 @@ def components(pool, price, shock, window):
         return None
 
     # The window names the steps it covers, so ``(0, 100)`` is the hundred
-    # steps beginning at the shock. An earlier form opened the capital at the
-    # end of the shock step and began accumulating on the step after it, which
-    # left the repricing and the first arbitrage against the pool outside the
-    # measurement. On the calibrated crisis that one step carried close to half
-    # the loss, and the reported crisis result was understated by about a
-    # factor of two.
+    # steps beginning at the shock. Opening the capital at the end of the shock
+    # step would leave the repricing and the first arbitrage against the pool
+    # outside the measurement, and on the calibrated crisis that one step
+    # carries close to half the loss.
     #
     # ``x[i]`` is the reserve carried into step ``i`` and ``price[i]`` is that
     # step's reference price, so the opening value uses the same pair the loop

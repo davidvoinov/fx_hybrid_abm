@@ -1035,8 +1035,8 @@ def test_endogenous_mm_withdrawal():
     mm._ofi_window = [0.9] * 5
     # The loss term is the revenue accumulated over the horizon, in bps of
     # the capital the dealer began with, so a loss is injected through the
-    # wealth path and not through the smoothed per tick rate the rule
-    # used to read. Three hundred basis points against a ten point threshold
+    # wealth path and not through a smoothed per tick rate. Three hundred
+    # basis points against a ten point threshold
     # saturates the term, which is what a large loss is meant to do here.
     mm._loss_bps_ewma = 30.0
     # The state update marks to market and appends the result, so the opening
@@ -2070,9 +2070,7 @@ def test_the_scenario_pause_is_not_read_as_a_decision():
     _seed_all(42)
     sim = build_sim(a)
 
-    # Stepped, so the dealer state can be read on every period. This used to
-    # hook the per agent collector's capture call, which is gone with the
-    # populations it recorded.
+    # Stepped, so the dealer state can be read on every period.
     seen = []
     for _ in range(a.n_iter):
         sim.simulate(1, silent=True)
@@ -2314,10 +2312,10 @@ def test_providers_may_react_between_taker_orders():
     # only to providers whose resting quantity actually fell while the taker
     # acted. Asking instead whether a provider currently shows both sides let
     # one that had been hit earlier, or had never posted a side, repost on
-    # somebody else's execution. That is size appearing without a cause, and
-    # it was eleven per cent of the reactive liquidity. The rate at which an
-    # invocation leads to a post is therefore expected to be high now: the
-    # filter has already removed the providers that had no reason to act.
+    # somebody else's execution, which is size appearing without a cause. The
+    # rate at which an invocation leads to a post is therefore expected to be
+    # high, because the filter has already removed the providers that had no
+    # reason to act.
     check_bool("no provider is ever asked to repost without having been filled",
                on['called_without_a_fill'] == 0,
                f"{on['on_trade']} invocations, {on['called_without_a_fill']} "
@@ -2785,10 +2783,8 @@ def test_recovery_support_counts_the_facility():
     # which the environment restores normal quoting, which is one of the
     # outcomes the arms are compared on, so a facility entering it would move
     # that outcome by a declared weight instead of by what the facility does.
-    # The two arm types used to enter through different channels, a pool
-    # through a venue weight of fifteen hundredths and an obliged quoter
-    # through its share of an active dealer sector, so the comparison carried
-    # an assumed difference in recovery on top of a measured one.
+    # Letting the two arm types enter through different channels would put an
+    # assumed difference in recovery on top of a measured one.
     pool = HFMMPool(x=1000.0, y=100_000.0, A=18.0, fee=0.0005, rate=100.0)
     sim = _make({'hfmm': pool})
     check("a pool does not move the recovery term",

@@ -270,8 +270,8 @@ def _read_population(lp, shock, option):
     return {
         'pool': type(lp.pool).__name__.replace('Pool', '').lower(),
         # Availability at the instant the shock lands is the state carried into
-        # the shock step.  ``closed[shock]`` is already the state *after* that
-        # step and previously introduced a one-tick look-ahead into the label.
+        # the shock step. ``closed[shock]`` is already the state after that
+        # step and would put a one tick look ahead into the label.
         'open_at_shock': bool(closed[pre_index] == 0),
         'open_after_initial_shock_step': bool(closed[shock] == 0),
         'open_through_crisis': bool(closed[pre_index] == 0

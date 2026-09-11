@@ -38,8 +38,7 @@ from AgentBasedModel.metrics.statistics import (
     paired_permutation_test,
 )
 # Plots are generated via tools.regenerate_plots after CSVs are written
-# (see end of _run_study). The legacy 2x2 dashboards in
-# AgentBasedModel.visualization.resilience_plots are no longer used.
+# (see end of _run_study).
 
 
 DEFAULT_PANELS = [

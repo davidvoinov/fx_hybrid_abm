@@ -71,10 +71,10 @@ def test_a_uniform_fee_reaches_both_venues():
     check_bool("every venue in the market carries the fee under test",
                all(abs(f - 30e-4) < 1e-12 for f in fees.values()), f"{fees}")
 
-    # The calibrated market now runs one pool, so the original defect, a fee
-    # reaching one venue and not the other, cannot show up there any more.
-    # The regression is kept alive by putting the second pool back, which is
-    # also the configuration the resource matched comparison uses.
+    # The calibrated market runs one pool, so a fee reaching one venue and not
+    # the other cannot show up there. The guard is kept alive by putting the
+    # second pool back, which is also the configuration the resource matched
+    # comparison uses.
     sim2, _ = T.run(42, 30e-4, 'rule', enable_cpmm=True)
     fees2 = {n: p.fee for n, p in sim2.amm_pools.items()}
     check_bool("there is more than one venue to get it wrong with",
@@ -164,9 +164,9 @@ def test_the_rule_table_agrees_with_the_code():
     check_bool("the table is present", bool(body))
 
     # The cap to check is the one the primary runtime carries, which comes from
-    # the manifest and drives the endogenous population. This check used to read
-    # the default on the reduced form AMMProvider, a class the primary model
-    # does not instantiate, so it held the table to a number no run ever used.
+    # the manifest and drives the endogenous population. Reading the default on
+    # the reduced form AMMProvider instead, a class the primary model does not
+    # instantiate, would hold the table to a number no run uses.
     cap = calibrated_default('amm_lp_max_adj', 0.0023873085271651773)
     # Printed as a fraction and not a decimal, so the check looks for the
     # denominator the module actually carries.
