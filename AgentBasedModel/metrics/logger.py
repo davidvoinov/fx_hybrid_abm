@@ -527,24 +527,6 @@ class MetricsLogger:
         lo, hi = self._flow_window(start, end)
         return float(sum(self.routed_volume.get(venue, [])[lo:hi]))
 
-    def routed_volume_share(self, venue: str, start: int = 0,
-                            end: Optional[int] = None) -> float:
-        """Share of routed customer demand sent to *venue*.
-
-        The counterpart of :meth:`customer_volume_share` on requested rather
-        than executed volume.  The executed share moves whenever the ability
-        to fill changes anywhere in the market, including for reasons that
-        concern neither venue; this one moves only when the routing decision
-        changes, which is what a claim about migrating flow is about.
-        """
-        lo, hi = self._flow_window(start, end)
-        denominator = sum(
-            sum(series[lo:hi]) for series in self.routed_volume.values()
-        )
-        if denominator <= 0.0:
-            return float('nan')
-        return self.routed_volume_total(venue, lo, hi) / denominator
-
     def amm_routed_volume_share(self, start: int = 0,
                                 end: Optional[int] = None) -> float:
         """Share of routed customer demand sent to all AMMs."""

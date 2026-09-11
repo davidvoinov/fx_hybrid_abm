@@ -769,17 +769,6 @@ class ExchangeAgent:
             self.dividend_book.append(max(div, 0))  # dividend > 0
             div *= self._next_dividend()
 
-    def _clear_book(self):
-        """
-        Clears glass from orders with 0 qty.
-
-        complexity O(n)
-
-        :return: void
-        """
-        self.order_book['bid'] = OrderList.from_list([order for order in self.order_book['bid'] if order.qty > 0])
-        self.order_book['ask'] = OrderList.from_list([order for order in self.order_book['ask'] if order.qty > 0])
-
     def spread(self) -> Optional[dict]:
         """
         :return: {'bid': float, 'ask': float}
@@ -1130,21 +1119,6 @@ class Trader:
             self.reserved_assets -= asset_release
         order.reserved_cash = 0.0
         order.reserved_assets = 0.0
-
-    def adjust_order_price(self, order: Order, new_price: float, t_cost: float) -> bool:
-        if order.trader is not self:
-            return False
-        if order.order_type != 'bid':
-            order.price = new_price
-            return True
-        new_reserve = max(0.0, new_price * order.qty * (1.0 + t_cost))
-        delta = new_reserve - getattr(order, 'reserved_cash', 0.0)
-        if delta > self.available_cash() + 1e-9:
-            return False
-        self.reserved_cash += delta
-        order.reserved_cash = new_reserve
-        order.price = new_price
-        return True
 
     def apply_fill(self, order: Order, fill_qty: float, fill_price: float,
                    t_cost: float, is_buy: bool, qty_before: float):

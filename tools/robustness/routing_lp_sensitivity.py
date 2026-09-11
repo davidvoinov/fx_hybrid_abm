@@ -758,37 +758,6 @@ def _raw_path(config: dict, raw_dir: str = RAW_DIR) -> str:
     tag = hashlib.sha256(payload.encode('utf-8')).hexdigest()[:16]
     return os.path.join(raw_dir, f'routing_lp_{tag}.jsonl')
 
-
-@contextmanager
-def _exclusive_raw_dir_lock(raw_dir: str = RAW_DIR):
-    """Hold one fail-fast writer/report lock for the complete panel run.
-
-    The lock file is intentionally retained after release.  Removing it would
-    create an inode race in which a third process could lock a newly-created
-    file while an earlier process still held the old one.
-    """
-    os.makedirs(raw_dir, exist_ok=True)
-    path = os.path.join(raw_dir, '.routing_lp_sensitivity.lock')
-    handle = open(path, 'a+', encoding='utf-8')
-    try:
-        try:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError as exc:
-            raise RuntimeError(
-                f'another routing LP sensitivity process owns {raw_dir!r}'
-            ) from exc
-        handle.seek(0)
-        handle.truncate()
-        handle.write(f'pid={os.getpid()}\n')
-        handle.flush()
-        yield
-    finally:
-        try:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
-        finally:
-            handle.close()
-
-
 def _number_or_none(value) -> bool:
     if value is None:
         return True

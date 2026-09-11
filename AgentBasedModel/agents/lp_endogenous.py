@@ -836,12 +836,6 @@ class LPPopulation:
             # ownerless positive supply or remain formally open because of it.
             self.total_supply = 0.0
 
-    def max_add(self) -> float:
-        """Total capital available to be committed, held by anyone."""
-        p = self._reference_price()
-        return max(0.0, sum(self._wallet_capacity_value(lp, p)
-                            for lp in self.providers))
-
 
 
     def _sweep_residual(self) -> tuple[float, float]:

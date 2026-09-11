@@ -1,5 +1,5 @@
 {
-  "protocol_version": "book-lp-final-v5.4",
+  "protocol_version": "book-lp-final-v5.5",
   "frozen_at": "2026-09-11",
   "scope": "Computational closure of the EBS book calibration and endogenous AMM-LP block. Manuscript prose is outside this protocol.",
   "revision_history": [
@@ -136,19 +136,30 @@
         "A financing charge or balance sheet check that raises is counted instead of silently swallowed.",
         "The seeds, the targets and the calibration of this pair do not move. The panel this protocol commits to is the same measurement it was."
       ]
+    },
+    {
+      "version": "book-lp-final-v5.5",
+      "frozen_at": "2026-09-11",
+      "result": "dead code is removed and the model is refrozen on the smaller source",
+      "reason": "Twenty four functions across the model package and the tools were reachable from nothing. A graph of the source found them and a direct search confirmed each is named once, at its own definition, with no dynamic access. Removing them is a source change and therefore moves every digest, and it is not a change of behaviour.",
+      "changes": [
+        "Seven hundred and three lines of unreachable code are gone, including a one hundred and forty three line annual frame in the welfare accounting that the participation grid had superseded.",
+        "Behaviour is unchanged and the claim is measured. The regression panel of thirty metrics on the same seed reproduces the predecessor exactly, to full printed precision, with no metric moving at all.",
+        "The holdout of the predecessor is not re-run. It was drawn once, under simulation_model_signature 19c9454bf5304371, and that predecessor differs from this version only by the removal above. Drawing it a second time is what a single use holdout forbids, and the regression identity is the evidence that carries its result forward."
+      ]
     }
   ],
   "phases": {
     "development": {
       "seed_start": 42,
       "seed_count": 300,
-      "status": "pending_run_under_book_lp_final_v5_4",
-      "output": "output/final/book_development_v54_300.json"
+      "status": "pending_run_under_book_lp_final_v5_5",
+      "output": "output/final/book_development_v55_300.json"
     },
     "holdout": {
       "seed_start": 20042,
       "seed_count": 300,
-      "status": "untouched_single_use_holdout",
+      "status": "consumed_under_book_lp_final_v5_4_not_redrawn",
       "output": "output/final/book_holdout_v54_300.json"
     }
   },
@@ -320,7 +331,7 @@
   "frozen_hashes": {
     "target_matrix_sha256": "84e0b86ef47da6a9ae3a7d42b13d3bd0764925955a5a61ec75dc98ecb13f7788",
     "primary_runtime_sha256": "2c9afaeb527aca8b8f45eef09c6b38464d872b14e125d1572ec50fb65f57cd20",
-    "simulation_model_signature": "19c9454bf5304371",
-    "book_acceptance_signature": "b10fc5378aa55796"
+    "simulation_model_signature": "22607751f62e7b71",
+    "book_acceptance_signature": "72562471485deb7a"
   }
 }

@@ -95,18 +95,6 @@ def _scenario_label(scenario_key: str) -> str:
             return label
     return scenario_key
 
-
-def _scenario_short(scenario_key: str) -> str:
-    return {
-        'mm_withdrawal': 'MM Wd',
-        'flash_crash': 'Flash',
-        'dealer_liquidity_crisis': 'Dealer Liq',
-        'funding_liquidity_shock': 'Funding',
-        'high_vol_stress': 'High Vol',
-        'default': 'Default',
-    }.get(scenario_key, scenario_key)
-
-
 # ---------------------------------------------------------------------------
 # Resilience: per-(scenario, metric) scatter
 # ---------------------------------------------------------------------------

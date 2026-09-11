@@ -1935,34 +1935,6 @@ def print_summary(sim: Simulator, acceptance_report: Optional[dict] = None):
                 return float('nan')
             return float(np.median(clean))
 
-        def _rolling_recovery(series, *, direction: str,
-                              rel_tol: float, abs_tol: float = 0.0,
-                              window: int = WINDOW):
-            baseline = _baseline(series)
-            if not np.isfinite(baseline):
-                return float('nan'), float('nan'), float('nan')
-
-            values = pd.Series(
-                [x if np.isfinite(x) else np.nan for x in series],
-                dtype='float64',
-            )
-            post_values = values.iloc[shock_iter:].reset_index(drop=True)
-            post = post_values.rolling(window, min_periods=window).median()
-            if len(post) == 0:
-                return float('nan'), baseline, float('nan')
-
-            if direction == 'upper':
-                target = max(baseline * (1.0 + rel_tol), baseline + abs_tol)
-                recovered = post <= target
-            else:
-                target = baseline * (1.0 - rel_tol)
-                recovered = post >= target
-
-            hits = recovered[recovered].index.tolist()
-            if not hits:
-                return float('inf'), baseline, target
-            return max(0, hits[0]), baseline, target
-
         def _trade_cost_series(venue: str = None, fallback=None):
             if fallback is None:
                 fallback = []

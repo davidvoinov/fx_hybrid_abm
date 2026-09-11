@@ -194,6 +194,3 @@ def tidy_origin(ax) -> None:
             if lab.get_text() in ('0', '0.0'):
                 lab.set_visible(False)
 
-
-def is_applied() -> bool:
-    return _APPLIED

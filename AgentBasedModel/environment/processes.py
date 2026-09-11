@@ -355,35 +355,17 @@ class MarketEnvironment:
         return self._amm_order_flow_imbalance
 
     @property
-    def logged_amm_order_flow_imbalance(self) -> float:
-        """Raw period AMM signed flow imbalance used for diagnostics."""
-        return self._logged_amm_order_flow_imbalance
-
-    @property
     def systemic_liquidity(self) -> float:
         """Common liquidity factor shared across venues in [0.2, 1.0]."""
         return self._systemic_liquidity
-
-    @property
-    def liquidity_shock(self) -> float:
-        """Residual liquidity-crisis intensity carried across the shock aftermath."""
-        return self._liquidity_shock
 
     @property
     def amm_slippage_signal(self) -> float:
         return self._amm_slippage_signal
 
     @property
-    def amm_reserve_imbalance(self) -> float:
-        return self._amm_reserve_imbalance
-
-    @property
     def venue_basis_bps(self) -> float:
         return self._venue_basis_bps
-
-    @property
-    def pool_dispersion_bps(self) -> float:
-        return self._pool_dispersion_bps
 
     @property
     def arbitrage_capacity(self) -> float:
@@ -396,14 +378,6 @@ class MarketEnvironment:
     @property
     def session_flow_multiplier(self) -> float:
         return self._session_flow_multiplier
-
-    @property
-    def session_liquidity_multiplier(self) -> float:
-        return self._session_liquidity_multiplier
-
-    @property
-    def session_vol_multiplier(self) -> float:
-        return self._session_vol_multiplier
 
     def _stress_seconds(self, intensity: float, base_share: float = 0.0,
                         slope_share: float = 1.0,
