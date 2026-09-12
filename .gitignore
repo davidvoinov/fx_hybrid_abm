@@ -44,3 +44,6 @@ EconMod/
 .vscode/
 .idea/
 .DS_Store
+
+# knowledge graph build output
+graphify-out/

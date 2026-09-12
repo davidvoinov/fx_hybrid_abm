@@ -5,7 +5,7 @@ The design is deliberately not the full factorial of the eight three-/two-
 level controls below.  It changes one parameter at a time around the primary
 liquidity-aware routing specification:
 
-* routing cost scale: 2, 4, 8 bps;
+* routing cost scale: 0.5, 1, 2 bps;
 * maximum prior weight: 0, 0.18;
 * perceived-cost noise: 0, 1.5, 3 bps;
 * HFMM reserves: 0.5, 1, 2 times the primary reserve setting.
@@ -59,7 +59,18 @@ RAW_DIR = os.path.join(ROOT, 'output', 'resilience',
                        'raw_routing_lp_sensitivity')
 
 BASELINE = {
-    'routing_cost_scale_bps': 4.0,
+    # The centre point of the design, which has to be the calibrated runtime.
+    # When the manifest moves the centre moves with it, since an OAT panel
+    # measured around a point the model does not occupy describes a market
+    # that was never run. The precommitment protects the centre from being
+    # tuned to produce a convenient answer, and reading it off the manifest
+    # is the opposite of tuning.
+    #
+    # This field stood at 4.0 until the calibration set it to 1.0. The scale
+    # sits in the denominator of the routing logit, so the smaller value makes
+    # the cost comparison sharper and leaves the prior less room, which is the
+    # direction that matters for the share this panel reports.
+    'routing_cost_scale_bps': 1.0,
     'routing_prior_mix_cap': 0.18,
     'cost_noise_std': 1.5,
     'hfmm_reserve_factor': 1.0,
@@ -73,7 +84,7 @@ BASELINE = {
 }
 
 PRECOMMIT_PROTOCOL = {
-    'protocol_version': 'routing-lp-arb-oat-v2',
+    'protocol_version': 'routing-lp-arb-oat-v3',
     'design': 'one_parameter_at_a_time_around_actual_primary_runtime_baseline',
     'not_full_factorial': True,
     'scenario': PRESET,
@@ -84,7 +95,7 @@ PRECOMMIT_PROTOCOL = {
     },
     'baseline': dict(BASELINE),
     'declared_levels': {
-        'routing_cost_scale_bps': [2.0, 4.0, 8.0],
+        'routing_cost_scale_bps': [0.5, 1.0, 2.0],
         'routing_prior_mix_cap': [0.0, 0.18],
         'cost_noise_std': [0.0, 1.5, 3.0],
         'hfmm_reserve_factor': [0.5, 1.0, 2.0],
@@ -185,8 +196,8 @@ def _specifications(n_iter: int = N_ITER):
         config.update(change)
         rows.append((label, config))
 
+    add('routing_cost_scale_0.5bps', routing_cost_scale_bps=0.5)
     add('routing_cost_scale_2bps', routing_cost_scale_bps=2.0)
-    add('routing_cost_scale_8bps', routing_cost_scale_bps=8.0)
     add('routing_prior_mix_cap_0', routing_prior_mix_cap=0.0)
     add('cost_noise_0bps', cost_noise_std=0.0)
     add('cost_noise_3bps', cost_noise_std=3.0)

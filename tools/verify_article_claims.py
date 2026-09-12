@@ -693,6 +693,73 @@ def prose(text):
     return out
 
 
+def routing_prior():
+    """Whether the routing prior still fails to carry the calm facility share.
+
+    The manuscript argues that the split between venues is produced by the cost
+    comparison, and it supports that with the panel cell in which the prior is
+    switched off entirely. The claim is a bound and not a figure, so it is
+    checked as a bound. The panel also has to have been produced by the model
+    now in the tree, since a cell measured at a routing elasticity the
+    calibration has since left describes a market nobody ran.
+    """
+    path = os.path.join(ROOT, 'output', 'resilience',
+                        'routing_lp_sensitivity_final_60.json')
+    out = {'present': False, 'fresh': False, 'baseline_share': None,
+           'prior_free_share': None, 'gap': None, 'bound': 0.005,
+           'paired': None}
+    try:
+        with open(path, encoding='utf-8') as handle:
+            panel = json.load(handle)
+    except (OSError, ValueError):
+        return out
+    out['present'] = True
+    # This panel measures the primary pair, so it is produced in the worktree
+    # that carries the primary calibration and copied across like the other
+    # artifacts of that pair. The sidecar records the signature it was
+    # produced under, and the local one is the right answer only where the
+    # manuscript and the measurement share a worktree.
+    try:
+        from tools.robustness.signatures import model_signature
+        expected = model_signature(ROOT)
+    except Exception:
+        expected = None
+    try:
+        with open(os.path.join(ROOT, 'output', 'resilience',
+                               'main_pair_provenance.json'),
+                  encoding='utf-8') as handle:
+            recorded = json.load(handle).get('model_signature')
+        expected = recorded or expected
+    except (OSError, ValueError):
+        pass
+    out['fresh'] = bool(expected) and panel.get('model_signature') == expected
+    # Every cell of this panel reports a distribution over seeds and not a
+    # single number, so the median is taken here as it is everywhere else in
+    # the paper, and the paired difference is preferred where the panel
+    # carries one, since pairing removes the seed from the comparison.
+    field = 'amm_customer_volume_share_calm'
+
+    def med(block):
+        cell = (block or {}).get(field)
+        if isinstance(cell, dict):
+            return cell.get('median')
+        return cell if isinstance(cell, (int, float)) else None
+
+    rows = {row.get('label'): row for row in panel.get('results') or []}
+    free_row = rows.get('routing_prior_mix_cap_0') or {}
+    out['baseline_share'] = med((rows.get('baseline') or {}).get('summary'))
+    out['prior_free_share'] = med(free_row.get('summary'))
+    paired = med(free_row.get('paired_delta_vs_baseline'))
+    if paired is not None:
+        out['gap'] = abs(float(paired))
+        out['paired'] = True
+    elif isinstance(out['baseline_share'], (int, float)) and isinstance(
+            out['prior_free_share'], (int, float)):
+        out['gap'] = abs(out['prior_free_share'] - out['baseline_share'])
+        out['paired'] = False
+    return out
+
+
 def punctuation():
     """Semicolons and colons in the prose, which the house rule forbids.
 
@@ -821,6 +888,32 @@ def main():
             print(f'  {mark}  ...{hit}')
         if hits:
             bad.append((f'{mark!r} in the prose', '0', 'the manuscript'))
+
+    print()
+    rp = routing_prior()
+    print('routing prior switched off, calm facility share')
+    if not rp['present']:
+        print('  panel absent')
+        bad.append(('the routing sensitivity panel is absent',
+                    'run tools.robustness.routing_lp_sensitivity', 'panel'))
+    elif not rp['fresh']:
+        print('  panel was produced by a different model  STALE')
+        bad.append(('the routing sensitivity panel is stale',
+                    'rerun it under the model in the tree', 'panel'))
+    elif rp['gap'] is None:
+        print('  the panel carries no prior free cell')
+        bad.append(('the routing panel has no prior free cell',
+                    'check the specification labels', 'panel'))
+    else:
+        print(f'  with the prior     {rp["baseline_share"]:.4f}')
+        print(f'  without the prior  {rp["prior_free_share"]:.4f}')
+        ok = rp['gap'] <= rp['bound']
+        kind = 'paired median' if rp.get('paired') else 'difference of medians'
+        print(f'  gap ({kind})  {rp["gap"]:.4f}  '
+              f'{"within" if ok else "OUTSIDE"} the half point the paper claims')
+        if not ok:
+            bad.append(('the prior free share moves more than half a point',
+                        f'{rp["gap"]:.4f}', 'the manuscript'))
 
     print()
     build = build_state()
