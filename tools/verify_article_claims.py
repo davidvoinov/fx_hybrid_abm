@@ -320,6 +320,36 @@ def _frontier_claims():
     return out
 
 
+def _reallocation_claims():
+    """The reallocation contrast on both pairs, point and interval.
+
+    The arm that funds the facility from dealer capital answers the objection
+    that the treated arm is given capital the control never had, so its result
+    is held to the manuscript like every other headline figure. Each pair is
+    read from its own artifact, and a pair whose artifact is absent contributes
+    nothing instead of failing the whole check.
+    """
+    out = []
+    for tag, rel in (('primary', ('output', 'facility_arms.json')),
+                     ('branch', ('output', 'eurchf', 'facility_arms.json'))):
+        path = os.path.join(ROOT, *rel)
+        try:
+            with open(path, encoding='utf-8') as handle:
+                contrasts = json.load(handle).get('contrasts') or {}
+        except (OSError, ValueError):
+            continue
+        for key, what in (('funding_source_peak', 'peak'),
+                          ('funding_source_cost', 'cost')):
+            block = contrasts.get(key) or {}
+            ci = block.get('ci') or [None, None]
+            if block.get('mean') is None or None in ci:
+                continue
+            out.append((f'{tag} reallocation {what} point', float(block['mean']), 2, '*'))
+            out.append((f'{tag} reallocation {what} lower', float(ci[0]), 2, '*'))
+            out.append((f'{tag} reallocation {what} upper', float(ci[1]), 2, '*'))
+    return out
+
+
 def claims():
     """Label, expected number, decimals, and where it has to appear.
 
@@ -383,6 +413,7 @@ def claims():
     # in the manuscript plots, and the two differ by about a third at the
     # wide end for that reason and not because either is stale.
     out.extend(_frontier_claims())
+    out.extend(_reallocation_claims())
 
     out.extend(_calibration_claims())
     out.extend(_migration_claims())
