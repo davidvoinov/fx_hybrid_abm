@@ -341,9 +341,9 @@ class ExchangeAgent:
     # The second rounding exists to clear the floating-point dust that a
     # division and a multiplication leave behind, and it was set at three
     # decimals. Three decimals is itself a grid, of one thousandth, and it is
-    # coarser than the increment this branch declares: the EBS decimal pip at
+    # coarser than the increment this branch declares: a tenth of a pip at
     # the floor rate is 0.0008326, so every price the model quoted was snapped
-    # to the pip and then snapped off it again onto a grid twenty per cent
+    # to that grid and then snapped off it again onto a grid twenty per cent
     # wider. Not one quoted price in the runs was a multiple of the increment
     # the manifest names. Ten decimals clears the dust and leaves the grid the
     # calibration declares, which is the only grid there should be.
