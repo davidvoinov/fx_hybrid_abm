@@ -152,7 +152,7 @@ def fig_decomposition(data='output/facility_arms.json') -> str:
     fig, axes = plt.subplots(1, 2, figsize=(6.4, 2.9), sharey=True)
     for ax, key, title in (
             (axes[0], 'delta_peak', 'Peak executable cost'),
-            (axes[1], 'delta_cost', 'What customers paid')):
+            (axes[1], 'delta_cost', 'Realised cost')):
         rows = []
         for name in order:
             block = contrasts.get(name, {}).get(key)
@@ -320,7 +320,7 @@ def fig_fee_frontier(data='output/figure_data.json') -> str:
     axes[0].set_xlabel('fee, basis points')
     axes[0].set_ylabel('result, per cent of capital')
     axes[0].legend(frameon=False, fontsize=8)
-    axes[0].set_title('What the capital earns', loc='left', fontsize=9)
+    axes[0].set_title('Return on committed capital', loc='left', fontsize=9)
     _frame(axes[0])
     axes[1].plot(fees, breakeven, color=POOL, linewidth=1.6,
                  marker='o', markersize=3.5)
@@ -491,8 +491,8 @@ def fig_pair_comparison(main='output/resilience/welfare_{}.json',
     names = ('EUR/USD, 2020', 'EUR/CHF, 2015')
     colours = (CONTROL, POOL)
     for ax, index, title, ylabel in (
-            (axes[0], 0, 'What customers gained', 'benefit, basis points'),
-            (axes[1], 1, 'What it cost to give it', 'provider loss per basis point')):
+            (axes[0], 0, 'Customer benefit', 'benefit, basis points'),
+            (axes[1], 1, 'Cost per basis point of benefit', 'provider loss per basis point')):
         for n, ((benefit, ratio), name, colour) in enumerate(
                 zip(series, names, colours)):
             values = (benefit, ratio)[index]
